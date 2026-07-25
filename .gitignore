@@ -30,8 +30,20 @@ CLAUDE.md
 .cursor/
 .github/copilot-instructions.md
 continue.config.json
+.agents/
+
+# Embedded build artifacts
+*.o
+*.elf
+*.hex
+*.lst
+*.map
+build/
 
 # Logs & temp
 *.log
 tmp/
 temp/
+
+# SCons
+.sconsign.dblite
