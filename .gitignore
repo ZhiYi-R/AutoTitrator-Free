@@ -14,7 +14,10 @@ env/
 
 # IDE
 .vscode/
+.zed/
 .idea/
+.clangd
+.clangd/
 *.swp
 *.swo
 
