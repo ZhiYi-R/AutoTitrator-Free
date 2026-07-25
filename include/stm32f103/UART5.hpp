@@ -1,0 +1,188 @@
+#pragma once
+
+#include <register/mmio.hpp>
+#include <cstdint>
+
+namespace STM32F103::UART5 {
+
+class SR {
+public:
+    using ValueType = std::uint32_t;
+    static constexpr ValueType ResetValue = 0x00000000;
+    
+    static auto Read() noexcept -> ValueType { return Reg::Read(); }
+    static void Write(ValueType value) noexcept { Reg::Write(value); }
+    static auto ReadPE() noexcept -> ValueType { return Reg::Read<F_PE>(); }
+    static auto ReadFE() noexcept -> ValueType { return Reg::Read<F_FE>(); }
+    static auto ReadNE() noexcept -> ValueType { return Reg::Read<F_NE>(); }
+    static auto ReadORE() noexcept -> ValueType { return Reg::Read<F_ORE>(); }
+    static auto ReadIDLE() noexcept -> ValueType { return Reg::Read<F_IDLE>(); }
+    static auto ReadRXNE() noexcept -> ValueType { return Reg::Read<F_RXNE>(); }
+    static void WriteRXNE(ValueType value) noexcept { Reg::Write<F_RXNE>(value); }
+    static auto ReadTC() noexcept -> ValueType { return Reg::Read<F_TC>(); }
+    static void WriteTC(ValueType value) noexcept { Reg::Write<F_TC>(value); }
+    static auto ReadTXE() noexcept -> ValueType { return Reg::Read<F_TXE>(); }
+    static auto ReadLBD() noexcept -> ValueType { return Reg::Read<F_LBD>(); }
+    static void WriteLBD(ValueType value) noexcept { Reg::Write<F_LBD>(value); }
+
+private:
+    static constexpr std::uintptr_t Address = 0x40005000;
+    using Reg = CortexM3::Register<ValueType, Address>;
+    using F_PE = CortexM3::Field<ValueType, 0, 1>;
+    using F_FE = CortexM3::Field<ValueType, 1, 1>;
+    using F_NE = CortexM3::Field<ValueType, 2, 1>;
+    using F_ORE = CortexM3::Field<ValueType, 3, 1>;
+    using F_IDLE = CortexM3::Field<ValueType, 4, 1>;
+    using F_RXNE = CortexM3::Field<ValueType, 5, 1>;
+    using F_TC = CortexM3::Field<ValueType, 6, 1>;
+    using F_TXE = CortexM3::Field<ValueType, 7, 1>;
+    using F_LBD = CortexM3::Field<ValueType, 8, 1>;
+};
+
+class DR {
+public:
+    using ValueType = std::uint32_t;
+    static constexpr ValueType ResetValue = 0x00000000;
+    
+    static auto Read() noexcept -> ValueType { return Reg::Read(); }
+    static void Write(ValueType value) noexcept { Reg::Write(value); }
+    static auto ReadDR() noexcept -> ValueType { return Reg::Read<F_DR>(); }
+    static void WriteDR(ValueType value) noexcept { Reg::Write<F_DR>(value); }
+
+private:
+    static constexpr std::uintptr_t Address = 0x40005004;
+    using Reg = CortexM3::Register<ValueType, Address>;
+    using F_DR = CortexM3::Field<ValueType, 0, 9>;
+};
+
+class BRR {
+public:
+    using ValueType = std::uint32_t;
+    static constexpr ValueType ResetValue = 0x00000000;
+    
+    static auto Read() noexcept -> ValueType { return Reg::Read(); }
+    static void Write(ValueType value) noexcept { Reg::Write(value); }
+    static auto ReadDIV_Fraction() noexcept -> ValueType { return Reg::Read<F_DIV_Fraction>(); }
+    static void WriteDIV_Fraction(ValueType value) noexcept { Reg::Write<F_DIV_Fraction>(value); }
+    static auto ReadDIV_Mantissa() noexcept -> ValueType { return Reg::Read<F_DIV_Mantissa>(); }
+    static void WriteDIV_Mantissa(ValueType value) noexcept { Reg::Write<F_DIV_Mantissa>(value); }
+
+private:
+    static constexpr std::uintptr_t Address = 0x40005008;
+    using Reg = CortexM3::Register<ValueType, Address>;
+    using F_DIV_Fraction = CortexM3::Field<ValueType, 0, 4>;
+    using F_DIV_Mantissa = CortexM3::Field<ValueType, 4, 12>;
+};
+
+class CR1 {
+public:
+    using ValueType = std::uint32_t;
+    static constexpr ValueType ResetValue = 0x00000000;
+    
+    static auto Read() noexcept -> ValueType { return Reg::Read(); }
+    static void Write(ValueType value) noexcept { Reg::Write(value); }
+    static auto ReadSBK() noexcept -> ValueType { return Reg::Read<F_SBK>(); }
+    static void WriteSBK(ValueType value) noexcept { Reg::Write<F_SBK>(value); }
+    static auto ReadRWU() noexcept -> ValueType { return Reg::Read<F_RWU>(); }
+    static void WriteRWU(ValueType value) noexcept { Reg::Write<F_RWU>(value); }
+    static auto ReadRE() noexcept -> ValueType { return Reg::Read<F_RE>(); }
+    static void WriteRE(ValueType value) noexcept { Reg::Write<F_RE>(value); }
+    static auto ReadTE() noexcept -> ValueType { return Reg::Read<F_TE>(); }
+    static void WriteTE(ValueType value) noexcept { Reg::Write<F_TE>(value); }
+    static auto ReadIDLEIE() noexcept -> ValueType { return Reg::Read<F_IDLEIE>(); }
+    static void WriteIDLEIE(ValueType value) noexcept { Reg::Write<F_IDLEIE>(value); }
+    static auto ReadRXNEIE() noexcept -> ValueType { return Reg::Read<F_RXNEIE>(); }
+    static void WriteRXNEIE(ValueType value) noexcept { Reg::Write<F_RXNEIE>(value); }
+    static auto ReadTCIE() noexcept -> ValueType { return Reg::Read<F_TCIE>(); }
+    static void WriteTCIE(ValueType value) noexcept { Reg::Write<F_TCIE>(value); }
+    static auto ReadTXEIE() noexcept -> ValueType { return Reg::Read<F_TXEIE>(); }
+    static void WriteTXEIE(ValueType value) noexcept { Reg::Write<F_TXEIE>(value); }
+    static auto ReadPEIE() noexcept -> ValueType { return Reg::Read<F_PEIE>(); }
+    static void WritePEIE(ValueType value) noexcept { Reg::Write<F_PEIE>(value); }
+    static auto ReadPS() noexcept -> ValueType { return Reg::Read<F_PS>(); }
+    static void WritePS(ValueType value) noexcept { Reg::Write<F_PS>(value); }
+    static auto ReadPCE() noexcept -> ValueType { return Reg::Read<F_PCE>(); }
+    static void WritePCE(ValueType value) noexcept { Reg::Write<F_PCE>(value); }
+    static auto ReadWAKE() noexcept -> ValueType { return Reg::Read<F_WAKE>(); }
+    static void WriteWAKE(ValueType value) noexcept { Reg::Write<F_WAKE>(value); }
+    static auto ReadM() noexcept -> ValueType { return Reg::Read<F_M>(); }
+    static void WriteM(ValueType value) noexcept { Reg::Write<F_M>(value); }
+    static auto ReadUE() noexcept -> ValueType { return Reg::Read<F_UE>(); }
+    static void WriteUE(ValueType value) noexcept { Reg::Write<F_UE>(value); }
+
+private:
+    static constexpr std::uintptr_t Address = 0x4000500c;
+    using Reg = CortexM3::Register<ValueType, Address>;
+    using F_SBK = CortexM3::Field<ValueType, 0, 1>;
+    using F_RWU = CortexM3::Field<ValueType, 1, 1>;
+    using F_RE = CortexM3::Field<ValueType, 2, 1>;
+    using F_TE = CortexM3::Field<ValueType, 3, 1>;
+    using F_IDLEIE = CortexM3::Field<ValueType, 4, 1>;
+    using F_RXNEIE = CortexM3::Field<ValueType, 5, 1>;
+    using F_TCIE = CortexM3::Field<ValueType, 6, 1>;
+    using F_TXEIE = CortexM3::Field<ValueType, 7, 1>;
+    using F_PEIE = CortexM3::Field<ValueType, 8, 1>;
+    using F_PS = CortexM3::Field<ValueType, 9, 1>;
+    using F_PCE = CortexM3::Field<ValueType, 10, 1>;
+    using F_WAKE = CortexM3::Field<ValueType, 11, 1>;
+    using F_M = CortexM3::Field<ValueType, 12, 1>;
+    using F_UE = CortexM3::Field<ValueType, 13, 1>;
+};
+
+class CR2 {
+public:
+    using ValueType = std::uint32_t;
+    static constexpr ValueType ResetValue = 0x00000000;
+    
+    static auto Read() noexcept -> ValueType { return Reg::Read(); }
+    static void Write(ValueType value) noexcept { Reg::Write(value); }
+    static auto ReadADD() noexcept -> ValueType { return Reg::Read<F_ADD>(); }
+    static void WriteADD(ValueType value) noexcept { Reg::Write<F_ADD>(value); }
+    static auto ReadLBDL() noexcept -> ValueType { return Reg::Read<F_LBDL>(); }
+    static void WriteLBDL(ValueType value) noexcept { Reg::Write<F_LBDL>(value); }
+    static auto ReadLBDIE() noexcept -> ValueType { return Reg::Read<F_LBDIE>(); }
+    static void WriteLBDIE(ValueType value) noexcept { Reg::Write<F_LBDIE>(value); }
+    static auto ReadSTOP() noexcept -> ValueType { return Reg::Read<F_STOP>(); }
+    static void WriteSTOP(ValueType value) noexcept { Reg::Write<F_STOP>(value); }
+    static auto ReadLINEN() noexcept -> ValueType { return Reg::Read<F_LINEN>(); }
+    static void WriteLINEN(ValueType value) noexcept { Reg::Write<F_LINEN>(value); }
+
+private:
+    static constexpr std::uintptr_t Address = 0x40005010;
+    using Reg = CortexM3::Register<ValueType, Address>;
+    using F_ADD = CortexM3::Field<ValueType, 0, 4>;
+    using F_LBDL = CortexM3::Field<ValueType, 5, 1>;
+    using F_LBDIE = CortexM3::Field<ValueType, 6, 1>;
+    using F_STOP = CortexM3::Field<ValueType, 12, 2>;
+    using F_LINEN = CortexM3::Field<ValueType, 14, 1>;
+};
+
+class CR3 {
+public:
+    using ValueType = std::uint32_t;
+    static constexpr ValueType ResetValue = 0x00000000;
+    
+    static auto Read() noexcept -> ValueType { return Reg::Read(); }
+    static void Write(ValueType value) noexcept { Reg::Write(value); }
+    static auto ReadEIE() noexcept -> ValueType { return Reg::Read<F_EIE>(); }
+    static void WriteEIE(ValueType value) noexcept { Reg::Write<F_EIE>(value); }
+    static auto ReadIREN() noexcept -> ValueType { return Reg::Read<F_IREN>(); }
+    static void WriteIREN(ValueType value) noexcept { Reg::Write<F_IREN>(value); }
+    static auto ReadIRLP() noexcept -> ValueType { return Reg::Read<F_IRLP>(); }
+    static void WriteIRLP(ValueType value) noexcept { Reg::Write<F_IRLP>(value); }
+    static auto ReadHDSEL() noexcept -> ValueType { return Reg::Read<F_HDSEL>(); }
+    static void WriteHDSEL(ValueType value) noexcept { Reg::Write<F_HDSEL>(value); }
+    static auto ReadDMAT() noexcept -> ValueType { return Reg::Read<F_DMAT>(); }
+    static void WriteDMAT(ValueType value) noexcept { Reg::Write<F_DMAT>(value); }
+
+private:
+    static constexpr std::uintptr_t Address = 0x40005014;
+    using Reg = CortexM3::Register<ValueType, Address>;
+    using F_EIE = CortexM3::Field<ValueType, 0, 1>;
+    using F_IREN = CortexM3::Field<ValueType, 1, 1>;
+    using F_IRLP = CortexM3::Field<ValueType, 2, 1>;
+    using F_HDSEL = CortexM3::Field<ValueType, 3, 1>;
+    using F_DMAT = CortexM3::Field<ValueType, 7, 1>;
+};
+
+} // namespace STM32F103::UART5
