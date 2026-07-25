@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# AGENT 文件
+AGENTS.md
+CLAUDE.md
+.windsurf/
+.cursor/
+.github/copilot-instructions.md
+continue.config.json
+
+# Logs & temp
+*.log
+tmp/
+temp/
