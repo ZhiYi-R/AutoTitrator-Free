@@ -28,7 +28,11 @@ struct Field {
      * @brief 计算字段掩码，consteval 强制编译期求值
      */
     static consteval T Mask() noexcept {
-        return ((T{1} << Width) - 1) << Position;
+        if constexpr (Width >= sizeof(T) * 8) {
+            return ~T{0};
+        } else {
+            return ((T{1} << Width) - 1) << Position;
+        }
     }
 };
 
