@@ -2,44 +2,30 @@
 
 from __future__ import annotations
 
-import json
 import os
-import time
-from functools import partial
 
 import numpy as np
 import pyqtgraph as pg
+from Communication import ProtocolHandler
+from DataProcessor._path import CALIBRE_PATH
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDoubleSpinBox,
-    QFormLayout,
-    QFrame,
-    QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
     QPushButton,
-    QSpinBox,
-    QSplitter,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from Communication import ProtocolHandler
-from DataProcessor.calibration import (
-    FLOW_RATE, PUMP_SLOPE, PUMP_INTERCEPT,
-    steps_from_volume, volume_from_steps,
-)
-
-from DataProcessor._path import CALIBRE_PATH
 DATA_DIR = os.path.dirname(CALIBRE_PATH)
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -92,7 +78,7 @@ class PumpCalibWidget(QWidget):
 
         # ---- 操作区 ----
         ctrl = QHBoxLayout()
-        self._jog_btn = QPushButton(f"点动 10000 脉冲")
+        self._jog_btn = QPushButton("点动 10000 脉冲")
         self._jog_btn.clicked.connect(self._jog)
         ctrl.addWidget(self._jog_btn)
 

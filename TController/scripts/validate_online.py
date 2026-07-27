@@ -5,14 +5,20 @@
 每帧跳过 stride 步再刷新，控制播放速度。
 """
 from __future__ import annotations
-import sys, warnings
+
+import sys
+import warnings
 from pathlib import Path
-import numpy as np, openpyxl
+
+import numpy as np
+import openpyxl
+
 warnings.filterwarnings("ignore")
 
 PJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PJ / "src"))
 from DataProcessor.calibration import FLOW_RATE, update_from_file
+
 update_from_file()
 
 DATA = Path("/home/zhiyir/文档/xwechat_files/wxid_l267qu0nkh512_1601/msg/attach/"
@@ -70,6 +76,7 @@ for i in range(N):
 
 # ── matplotlib 实时绘图 ─────────────────────────────────────────────────
 import matplotlib
+
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 

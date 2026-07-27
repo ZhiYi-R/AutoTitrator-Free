@@ -6,8 +6,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from Communication import ProtocolHandler
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -18,8 +17,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from Communication import ProtocolHandler
 
 
 class _OperationPanel(QGroupBox):

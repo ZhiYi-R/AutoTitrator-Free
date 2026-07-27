@@ -6,46 +6,36 @@ import os
 import time
 from datetime import datetime
 from enum import Enum
-from functools import partial
 
 import numpy as np
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QFont, QFontDatabase
+import openpyxl
+from Communication import ProtocolHandler
+from DataProcessor import PUMP_SLOPE, EndpointDetector, steps_from_volume
+from DataProcessor import reconstruct as _reconstruct
+from DataProcessor._path import CALIBRE_PATH
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
-    QFormLayout,
-    QFrame,
-    QGroupBox,
-    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
-    QSpinBox,
-    QStatusBar,
     QTabWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
 )
 
-from Communication import ProtocolHandler
-from DataProcessor import EndpointDetector, reconstruct as _reconstruct
-from DataProcessor import steps_from_volume, PUMP_SLOPE
-from DataProcessor._path import CALIBRE_PATH
-import openpyxl
-
-from gui.spectrum_widget import SpectrumWidget
-from gui.potential_widget import PotentialWidget
-from gui.results_panel import ResultsPanel
 from gui.calibration_tab import CalibrationTab
 from gui.maintenance_tab import MaintenanceTab
-from gui.themes import MODE_NAMES, apply_theme
+from gui.potential_widget import PotentialWidget
+from gui.results_panel import ResultsPanel
+from gui.spectrum_widget import SpectrumWidget
+from gui.themes import apply_theme
 
 
 class TitrationState(Enum):
@@ -625,7 +615,6 @@ class MainWindow(QMainWindow):
 
     def _export_recording(self, result: dict) -> None:
         """将记录的数据写入 ExpResults/ 目录下的 xlsx 文件。"""
-        from datetime import datetime
 
         out_dir = os.path.join(os.path.dirname(__file__), "..", "..", "ExpResults")
         os.makedirs(out_dir, exist_ok=True)

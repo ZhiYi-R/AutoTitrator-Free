@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -140,6 +139,10 @@ def _apply_plot_colors(pc: PlotColors, plots: list) -> None:
 
 
 __all__ = [
-    "Theme", "PlotColors", "THEMES", "MODE_NAMES",
-    "resolve_theme", "apply_theme",
+    "MODE_NAMES",
+    "THEMES",
+    "PlotColors",
+    "Theme",
+    "apply_theme",
+    "resolve_theme",
 ]

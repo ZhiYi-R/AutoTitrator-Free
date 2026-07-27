@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from DataProcessor import PUMP_SLOPE
-
-import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFont
+from DataProcessor import PUMP_SLOPE
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QDoubleSpinBox, QVBoxLayout, QWidget,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
 )
 
 VREF = 3.3

@@ -14,9 +14,9 @@ AS7341 10 通道 → 全光谱重建。
 from __future__ import annotations
 
 import os
-from typing import Tuple
 
 import numpy as np
+
 from DataProcessor._path import CALIBRE_PATH
 
 _DATA_PATH = CALIBRE_PATH
@@ -50,7 +50,7 @@ def reconstruct(
     raw_values: list[float] | np.ndarray,
     offsets: np.ndarray | None = None,
     factors: np.ndarray | None = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """从 10 通道原始 ADC 值重建全光谱。
 
     参数

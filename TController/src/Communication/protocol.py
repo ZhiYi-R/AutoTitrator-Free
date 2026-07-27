@@ -21,8 +21,7 @@ from collections import deque
 from enum import IntEnum, auto
 
 import serial
-from PySide6.QtCore import QThread, QObject, Signal, QTimer, QEventLoop
-
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
 # ---- CRC-8 (Maxim-Dallas, poly = 0x31) ----
 

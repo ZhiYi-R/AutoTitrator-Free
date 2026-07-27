@@ -77,6 +77,7 @@ N = len(uvol_p)
 print("\n[3] 电位通道分析 (savgol w=15, AMPD max_scale=200)…")
 from DataProcessor.endpoint import savgol_filter
 
+
 def ampd_limited(signal, max_scale=200):
     Ns = len(signal)
     if Ns < 4: return np.array([], dtype=int)
@@ -107,7 +108,7 @@ print(f"  AMPD: {len(peaks_ampd)} 峰 (总 {len(deriv_sm)} 点)")
 if len(peaks_ampd):
     pv = deriv_sm[peaks_ampd]
     top3 = np.argsort(np.abs(pv))[-3:][::-1]
-    print(f"  Top-3 (|dV/dt|):")
+    print("  Top-3 (|dV/dt|):")
     for idx in top3:
         print(f"    vol={vol_mid[peaks_ampd[idx]]:.4f} mL  dV/dt={pv[idx]:+.2f}")
 
@@ -117,6 +118,7 @@ if len(peaks_ampd):
 
 print("\n[4] 光谱通道分析…")
 from DataProcessor.endpoint import _local_maxima
+
 
 def cross_entropy(arr):
     p = arr[1:].astype(np.float64)
@@ -145,9 +147,11 @@ for label, ce in [("8ch-raw", ce_8), ("721-pt", ce_721)]:
 
 print("\n[5] 运行 EndpointDetector (patched AMPD)…")
 import DataProcessor.endpoint as ep_mod
+
 ep_mod._ampd = lambda s, mx=None: ampd_limited(s, mx or 200)
 
 from DataProcessor.endpoint import EndpointDetector
+
 det = EndpointDetector(flow_rate=FLOW_RATE, potential_window=300.0,
                        spectral_window=300.0, max_potential_points=6000,
                        max_spectral_frames=500, consensus_threshold=1.0)
@@ -164,6 +168,7 @@ result = det.detect()
 # ═══════════════════════════════════════════════════════════════════════
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -191,7 +196,7 @@ ax.grid(True, alpha=0.3)
 ax.legend(loc="upper right")
 
 ax = axes[2]
-ce_label = f"8ch 交叉熵 (savgol w=15)"
+ce_label = "8ch 交叉熵 (savgol w=15)"
 ax.plot(vol_mid, savgol_filter(ce_8, window=15, order=2), "m-", lw=1, label=ce_label)
 lm_ce8 = _local_maxima(savgol_filter(ce_8, window=15, order=2))
 if len(lm_ce8):
@@ -214,7 +219,7 @@ if result:
     if result.get("spectral"):
         lines.append(f"光谱峰:   {result['spectral']['volume']:.4f} mL")
 lines.append("")
-lines.append(f"AMPD max_scale=200")
+lines.append("AMPD max_scale=200")
 lines.append(f"数据 {N}步 | 流速 {FLOW_RATE:.6f}")
 
 bbox = dict(boxstyle="round,pad=0.5", fc="lightyellow", alpha=0.9)
