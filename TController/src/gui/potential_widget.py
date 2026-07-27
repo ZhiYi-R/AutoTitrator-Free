@@ -1,18 +1,14 @@
-"""电位–体积/滴定度实时曲线（含在线 EWMA 滤波）。"""
+"""电位–体积/滴定度实时曲线（含在线 EWMA 滤波，matplotlib blit 加速）。"""
 
 from __future__ import annotations
 
-import pyqtgraph as pg
+import tkinter as tk
+
+import numpy as np
 from DataProcessor import PUMP_SLOPE
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (
-    QDoubleSpinBox,
-    QHBoxLayout,
-    QLabel,
-    QVBoxLayout,
-    QWidget,
-)
+from matplotlib.patches import Polygon
+
+from gui._plot import _BlitPlot
 
 VREF = 3.3
 ADC_MAX = 65535
@@ -43,81 +39,83 @@ class _EWMA:
         return self._v
 
 
-class PotentialWidget(QWidget):
+class PotentialWidget(_BlitPlot):
     """电位–体积/滴定度曲线（在线 EWMA 平滑）。"""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+    def __init__(self, parent: tk.Misc, **kwargs) -> None:
+        super().__init__(parent, title="电位–体积 / Potential–Volume", **kwargs)
+
         self._titrating = False
         self._times: list[float] = []
-        self._volts_raw: list[float] = []  # 原始值
-        self._volts_sm: list[float] = []  # EWMA 平滑值
+        self._volts_raw: list[float] = []
+        self._volts_sm: list[float] = []
         self._volumes: list[float] = []
         self._endpoint_volume: float | None = None
         self._cal_unit: str | None = None
         self._cal_slope: float | None = None
         self._cal_intercept: float | None = None
-        self._endpoint_line: pg.InfiniteLine | None = None
+        self._endpoint_line = None
 
-        self._ewma = _EWMA(0.15)  # 可调 alpha
-
-        self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(0, 0, 0, 0)
+        self._ewma = _EWMA(0.15)
 
         # ── 顶部控制栏 ───────────────────────────────────────────────
-        top = QHBoxLayout()
-        top.setContentsMargins(8, 4, 8, 0)
-        top.addWidget(QLabel("平滑 α:"))
-        self._alpha_spin = QDoubleSpinBox()
-        self._alpha_spin.setRange(0.01, 1.0)
-        self._alpha_spin.setSingleStep(0.05)
-        self._alpha_spin.setDecimals(2)
-        self._alpha_spin.setValue(0.15)
-        self._alpha_spin.valueChanged.connect(self._on_alpha_changed)
-        self._alpha_spin.setToolTip("EWMA 平滑系数，越大越跟随原始数据")
-        top.addWidget(self._alpha_spin)
-        top.addStretch()
-        self._info_label = QLabel("")
-        self._info_label.setStyleSheet("color: #7f8c8d; font-size: 11px;")
-        top.addWidget(self._info_label)
+        top = tk.Frame(self)
+        top.pack(fill="x", padx=8, pady=(4, 0))
 
-        tw = QWidget()
-        tw.setLayout(top)
-        self.layout().addWidget(tw)
+        tk.Label(top, text="平滑 α:").pack(side="left")
 
-        # ── 绘图 ─────────────────────────────────────────────────────
-        self._plot = pg.PlotWidget(title="电位–体积 / Potential–Volume")
-        self._plot.setLabel("bottom", "Time", "s")
-        self._plot.setLabel("left", "Potential", "V")
-        self._plot.getAxis("bottom").enableAutoSIPrefix(False)
-        self._plot.getAxis("left").enableAutoSIPrefix(False)
-        self._plot.showGrid(x=True, y=True, alpha=0.3)
-        self._plot.setXRange(0, 60)
-        self._plot.setYRange(-0.5, 1.5)
-        self._plot.addLegend(offset=(10, 10))
-
-        # 平滑后（主曲线）
-        self._sm_curve = pg.PlotDataItem(
-            x=[],
-            y=[],
-            name="Filtered",
-            pen=pg.mkPen(QColor("#27ae60"), width=1.5),
-            fillLevel=0,
-            brush=QColor(39, 174, 96, 40),
+        self._alpha_var = tk.StringVar(value="0.15")
+        self._alpha_spin = tk.Spinbox(
+            top,
+            from_=0.01,
+            to=1.0,
+            increment=0.05,
+            textvariable=self._alpha_var,
+            width=5,
+            format="%.2f",
+            command=self._on_alpha_changed,
         )
-        self._plot.addItem(self._sm_curve)
+        self._alpha_spin.pack(side="left", padx=(4, 8))
 
-        self.layout().addWidget(self._plot)
+        self._info_label = tk.Label(top, text="", foreground="#7f8c8d")
+        self._info_label.pack(side="left")
+
+        # ── 绘图区 ───────────────────────────────────────────────────
+        self._ax.set_xlabel("Time (s)")
+        self._ax.set_ylabel("Potential (V)")
+        self._ax.set_xlim(0, 60)
+        self._ax.set_ylim(-0.5, 1.5)
+        self._ax.grid(True, alpha=0.3)
+
+        # 平滑后主曲线
+        (self._sm_curve,) = self._ax.plot(
+            [], [], color="#27ae60", linewidth=1.5
+        )
+
+        # 填充区域
+        self._fill = Polygon(
+            np.zeros((0, 2)),
+            facecolor=(39 / 255, 174 / 255, 96 / 255, 0.16),
+            edgecolor="none",
+        )
+        self._ax.add_patch(self._fill)
+
+        self._artists = [self._fill, self._sm_curve]
+        self._capture_bg()
 
     # ── 控制 ────────────────────────────────────────────────────────
 
-    def _on_alpha_changed(self, a: float) -> None:
+    def _on_alpha_changed(self) -> None:
+        try:
+            a = float(self._alpha_var.get())
+        except ValueError:
+            return
         self._ewma = _EWMA(a)
         # 重算全部历史
         self._volts_sm.clear()
         for v in self._volts_raw:
             self._volts_sm.append(self._ewma(v))
-        self._info_label.setText(f"α={a:.2f}")
+        self._info_label.config(text=f"α={a:.2f}")
 
     # ── 数据馈入 ────────────────────────────────────────────────────
 
@@ -148,39 +146,46 @@ class PotentialWidget(QWidget):
     def set_endpoint(self, volume: float) -> None:
         self._endpoint_volume = volume
         if self._endpoint_line is not None:
-            self._plot.removeItem(self._endpoint_line)
-        self._endpoint_line = pg.InfiniteLine(
-            pos=1.0 if volume > 0 else 0,
-            angle=90,
-            pen=pg.mkPen(QColor("#e74c3c"), width=2, style=Qt.PenStyle.DashLine),
-            label="T=1",
+            self._endpoint_line.remove()
+            self._endpoint_line = None
+        self._endpoint_line = self._ax.axvline(
+            x=1.0 if volume > 0 else 0,
+            color="#e74c3c",
+            linewidth=2,
+            linestyle="--",
         )
-        self._plot.addItem(self._endpoint_line)
-        self._plot.setLabel("bottom", "Titration degree", "T")
-        self._plot.setXRange(0, 2.5)
+        self._ax.set_xlabel("Titration degree (T)")
+        self._ax.set_xlim(0, 2.5)
+        if self._endpoint_line not in self._artists:
+            self._artists.append(self._endpoint_line)
+        self._request_full_redraw()
 
     # ── 刷新 ────────────────────────────────────────────────────────
 
     def refresh(self) -> None:
+        # 标题和 Y 轴标签
         if self._cal_slope is not None:
             unit = self._cal_unit or "pX"
-            self._plot.setTitle(f"{unit}–体积 / {unit}–Volume")
-            self._plot.setLabel("left", self._cal_unit or "pX", "")
+            self._ax.set_title(f"{unit}–体积 / {unit}–Volume")
+            self._ax.set_ylabel(self._cal_unit or "pX")
         else:
-            self._plot.setTitle("电位–体积 / Potential–Volume")
-            self._plot.setLabel("left", "Potential", "V")
+            self._ax.set_title("电位–体积 / Potential–Volume")
+            self._ax.set_ylabel("Potential (V)")
 
+        # X 轴标签
         if self._endpoint_volume is not None and self._endpoint_volume > 0:
-            self._plot.setLabel("bottom", "Titration degree", "T")
+            self._ax.set_xlabel("Titration degree (T)")
         else:
-            self._plot.setLabel("bottom", "Time", "s")
+            self._ax.set_xlabel("Time (s)")
 
         if not self._times:
-            self._sm_curve.setData(x=[], y=[])
+            self._sm_curve.set_data([], [])
             if self._cal_slope is not None:
-                self._plot.setYRange(0, 14)
+                self._ax.set_ylim(0, 14)
             else:
-                self._plot.setYRange(-0.5, 1.5)
+                self._ax.set_ylim(-0.5, 1.5)
+            self._request_full_redraw()
+            self._blit()
             return
 
         # 计算 x
@@ -188,10 +193,9 @@ class PotentialWidget(QWidget):
             x_vals = [v / self._endpoint_volume for v in self._volumes]
         elif self._titrating:
             x_vals = list(self._volumes)
-            self._plot.setLabel("bottom", "Volume", "mL")
+            self._ax.set_xlabel("Volume (mL)")
         else:
             x_vals = list(self._times)
-            self._plot.setLabel("bottom", "Time", "s")
 
         # 平滑值
         if self._cal_slope is not None:
@@ -202,7 +206,18 @@ class PotentialWidget(QWidget):
             ]
         else:
             y_sm = self._volts_sm
-        self._sm_curve.setData(x=x_vals, y=y_sm)
+
+        self._sm_curve.set_data(x_vals, y_sm)
+
+        # 更新填充区域
+        if len(x_vals) > 0:
+            verts = np.column_stack(
+                [
+                    np.concatenate([x_vals, x_vals[::-1]]),
+                    np.concatenate([y_sm, np.zeros_like(y_sm)]),
+                ]
+            )
+            self._fill.set_xy(verts)
 
         # Y 范围（基于平滑值）
         if len(y_sm) > 0:
@@ -210,7 +225,10 @@ class PotentialWidget(QWidget):
             y_max = max(y_sm)
             if y_max > y_min:
                 padding = max(0.1, (y_max - y_min) * 0.15)
-                self._plot.setYRange(y_min - padding, y_max + padding)
+                new_ylim = (y_min - padding, y_max + padding)
+                if new_ylim != self._ax.get_ylim():
+                    self._ax.set_ylim(new_ylim)
+                    self._request_full_redraw()
 
         # X 范围
         if len(x_vals) > 0:
@@ -219,7 +237,12 @@ class PotentialWidget(QWidget):
                 x_max = max(x_max, 1.0)
             else:
                 x_max = max(x_max, 0.5)
-            self._plot.setXRange(0, x_max)
+            new_xlim = (0, x_max)
+            if new_xlim != self._ax.get_xlim():
+                self._ax.set_xlim(new_xlim)
+                self._request_full_redraw()
+
+        self._blit()
 
     def reset(self) -> None:
         self._times.clear()
@@ -229,11 +252,14 @@ class PotentialWidget(QWidget):
         self._ewma.reset()
         self._endpoint_volume = None
         if self._endpoint_line is not None:
-            self._plot.removeItem(self._endpoint_line)
+            self._endpoint_line.remove()
             self._endpoint_line = None
-        self._plot.setLabel("bottom", "Time", "s")
-        self._plot.setXRange(0, 5)
-        self._sm_curve.setData(x=[], y=[])
+            if self._endpoint_line in self._artists:
+                self._artists.remove(self._endpoint_line)
+        self._ax.set_xlabel("Time (s)")
+        self._ax.set_xlim(0, 5)
+        self._sm_curve.set_data([], [])
+        self._request_full_redraw()
 
     def shutdown(self) -> None:
         pass
