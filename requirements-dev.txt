@@ -1,0 +1,8 @@
+# 开发/构建/验证依赖
+# 含运行时依赖 + MCU 固件构建 + 离线验证脚本所需
+
+-r requirements.txt
+
+scons>=4.8,<5             # MCU 固件构建 (SConstruct)
+matplotlib>=3.8,<4        # TController/scripts/validate_*.py 离线绘图
+ruff>=0.6,<1              # Python linter & formatter
