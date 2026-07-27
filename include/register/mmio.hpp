@@ -10,6 +10,6 @@
  * - atomic.hpp：LDREX/STREX 原语封装
  */
 
-#include "concepts.hpp"
-#include "field.hpp"
-#include "register.hpp"
+#include "concepts.hpp"     // IWYU pragma: keep
+#include "field.hpp"        // IWYU pragma: keep
+#include "register.hpp"     // IWYU pragma: keep

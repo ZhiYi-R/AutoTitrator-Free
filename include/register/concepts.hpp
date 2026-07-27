@@ -2,7 +2,6 @@
 
 #include <concepts>
 #include <cstdint>
-#include <type_traits>
 
 namespace CortexM3 {
 
