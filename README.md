@@ -20,13 +20,13 @@
 ├── Startup/              # 启动代码 + 中断向量 + 链接脚本
 ├── include/              # 固件头文件 (Platform/HAL/Device/Protocol)
 ├── TController/          # Python 上位机
-│   ├── src/
-│   │   ├── main.py       # GUI 入口
-│   │   ├── Communication/# 串口通信协议
-│   │   ├── DataProcessor/# 终点检测 + 光谱重建
-│   │   └── gui/          # ttkbootstrap UI + matplotlib 绘图
-│   ├── requirements.txt  # 运行时依赖
-│   └── requirements-dev.txt
+│   └── src/
+│       ├── main.py       # GUI 入口
+│       ├── Communication/# 串口通信协议
+│       ├── DataProcessor/# 终点检测 + 光谱重建
+│       └── gui/          # ttkbootstrap UI + matplotlib 绘图
+├── requirements.txt      # 上位机运行时依赖
+├── requirements-dev.txt  # 运行时 + scons 固件构建 + ruff/pyright
 ├── openocd.cfg           # OpenOCD 调试配置
 ├── .gdbinit              # GDB 初始化脚本
 ├── LICENSE               # PolyForm Shield 1.0.0
@@ -85,9 +85,9 @@ Python 上位机通过串口与 MCU 通信，提供实时光谱/电位曲线、�
 ### 运行
 
 ```sh
-cd TController
-uv sync                      # 安装依赖
-uv run python src/main.py    # 启动 GUI
+# 在项目根目录执行（requirements.txt 在根目录）
+uv pip install -r requirements.txt        # 安装运行时依赖
+uv run python TController/src/main.py     # 启动 GUI
 ```
 
 ### 技术栈
