@@ -6,3 +6,4 @@
 scons>=4.8,<5             # MCU 固件构建 (SConstruct)
 matplotlib>=3.8,<4        # TController/scripts/validate_*.py 离线绘图
 ruff>=0.6,<1              # Python linter & formatter
+pyright>=1.1,<2           # Python 静态类型检查
