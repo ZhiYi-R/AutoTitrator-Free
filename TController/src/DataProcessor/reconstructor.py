@@ -14,6 +14,7 @@ AS7341 10 通道 → 全光谱重建。
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -50,7 +51,7 @@ def get_wavelengths() -> np.ndarray:
 
 
 def reconstruct(
-    raw_values: list[float] | np.ndarray,
+    raw_values: Sequence[float] | np.ndarray,
     offsets: np.ndarray | None = None,
     factors: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:

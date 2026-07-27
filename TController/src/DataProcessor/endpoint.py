@@ -234,8 +234,10 @@ class EndpointDetector:
                     self._pot_cand_vol = vol
                 if (
                     d_sm > self._pot_exit_th
+                    and self._pot_entry_vol is not None
                     and (vol - self._pot_entry_vol) > self.POT_CONFIRM_VOL
                 ):
+                    assert self._pot_cand_vol is not None
                     self._pot_ep_vol = self._pot_cand_vol
                     self._pot_ep_t = self._pot_cand_vol / self._flow_rate
                     self._pot_state = "END_CONFIRMED"
@@ -268,6 +270,7 @@ class EndpointDetector:
                 if ce_sm < self.SPEC_EXIT:
                     self._spec_rest_cnt += 1
                     if self._spec_rest_cnt >= self.SPEC_CONFIRM_FRAMES:
+                        assert self._spec_cand_vol is not None
                         self._spec_ep_vol = self._spec_cand_vol
                         self._spec_ep_t = self._spec_cand_vol / self._flow_rate
                         self._spec_state = "END_CONFIRMED"

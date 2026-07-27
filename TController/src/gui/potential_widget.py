@@ -195,6 +195,7 @@ class PotentialWidget(QWidget):
 
         # 平滑值
         if self._cal_slope is not None:
+            assert self._cal_intercept is not None
             y_sm = [
                 self._cal_intercept + self._cal_slope * v * 1000.0
                 for v in self._volts_sm

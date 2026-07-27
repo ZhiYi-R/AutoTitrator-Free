@@ -687,7 +687,8 @@ class SpectralMatrixWidget(QWidget):
         )
         # Set colormap: rdylbu-like
         cmap = pg.colormap.get("viridis")
-        img.setColorMap(cmap)
+        if cmap is not None:
+            img.setColorMap(cmap)
         self._plot.addItem(img)
 
         # Colorbar

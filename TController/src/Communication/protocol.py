@@ -297,13 +297,13 @@ class ProtocolHandler(QObject):
     def is_open(self) -> bool:
         return self._reader.is_open
 
-    def connect(self) -> None:
+    def connect(self) -> None:  # type: ignore[override]
         if not self._port_name:
             self.error_occurred.emit("未指定串口端口")
             return
         self._reader.open(self._port_name, self._baudrate)
 
-    def disconnect(self) -> None:
+    def disconnect(self) -> None:  # type: ignore[override]
         self._reader.close()
 
     def reconfigure(self, port: str, baudrate: int) -> None:

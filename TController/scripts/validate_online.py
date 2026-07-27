@@ -48,57 +48,57 @@ class OD:
     POT_MIN_VOL = 0.5
     POT_CONFIRM_VOL = 0.15
 
-    def __init__(s, fr):
-        s.fr = fr
-        s.va = 0.15
-        s.da = 0.05
-        s.vs = None
-        s.pvs = None
-        s.pt = None
-        s.ds = 0.0
-        s.ps = "IDLE"
-        s.pe = None
-        s.md = 0.0
-        s.cv = None
-        s.ev = None
-        s.pd = False
-        s.vh = []
-        s.dh = []
-        s.sh = []
+    def __init__(self, fr):
+        self.fr = fr
+        self.va = 0.15
+        self.da = 0.05
+        self.vs = None
+        self.pvs = None
+        self.pt = None
+        self.ds = 0.0
+        self.ps = "IDLE"
+        self.pe = None
+        self.md = 0.0
+        self.cv = None
+        self.ev = None
+        self.pd = False
+        self.vh = []
+        self.dh = []
+        self.sh = []
 
-    def feed(s, t0, v0):
-        v = t0 * s.fr
-        if s.vs is None:
-            s.vs = float(v0)
+    def feed(self, t0, v0):
+        v = t0 * self.fr
+        if self.vs is None:
+            self.vs = float(v0)
         else:
-            s.vs = s.va * float(v0) + (1 - s.va) * s.vs
-        if s.pt is not None and s.pvs is not None:
-            dt = t0 - s.pt
-            dv = s.vs - s.pvs
+            self.vs = self.va * float(v0) + (1 - self.va) * self.vs
+        if self.pt is not None and self.pvs is not None:
+            dt = t0 - self.pt
+            dv = self.vs - self.pvs
             dr = dv / dt if dt > 0 else 0
         else:
             dr = 0
-        s.ds = s.da * dr + (1 - s.da) * s.ds
-        s.pvs = s.vs
-        s.pt = t0
-        if not s.pd and v > s.POT_MIN_VOL:
-            if s.ps == "IDLE":
-                if s.ds < s.POT_ENTER:
-                    s.ps = "TRACKING"
-                    s.md = s.ds
-                    s.cv = v
-                    s.ev = v
-            elif s.ps == "TRACKING":
-                if s.ds < s.md:
-                    s.md = s.ds
-                    s.cv = v
-                if s.ds > s.POT_EXIT and (v - s.ev) > s.POT_CONFIRM_VOL:
-                    s.pe = s.cv
-                    s.ps = "END_CONFIRMED"
-                    s.pd = True
-        s.vh.append(v)
-        s.dh.append(s.ds)
-        s.sh.append(s.ps)
+        self.ds = self.da * dr + (1 - self.da) * self.ds
+        self.pvs = self.vs
+        self.pt = t0
+        if not self.pd and v > self.POT_MIN_VOL:
+            if self.ps == "IDLE":
+                if self.ds < self.POT_ENTER:
+                    self.ps = "TRACKING"
+                    self.md = self.ds
+                    self.cv = v
+                    self.ev = v
+            elif self.ps == "TRACKING":
+                if self.ds < self.md:
+                    self.md = self.ds
+                    self.cv = v
+                if self.ds > self.POT_EXIT and (v - self.ev) > self.POT_CONFIRM_VOL:
+                    self.pe = self.cv
+                    self.ps = "END_CONFIRMED"
+                    self.pd = True
+        self.vh.append(v)
+        self.dh.append(self.ds)
+        self.sh.append(self.ps)
 
 
 # ── 预计算完整 dV/dt（画背景用） ────────────────────────────────────
@@ -133,7 +133,7 @@ import matplotlib.pyplot as plt
 
 plt.rcParams["font.size"] = 9
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
-fig.canvas.manager.set_window_title("Titration - Online Endpoint Detection")
+fig.canvas.manager.set_window_title("Titration - Online Endpoint Detection")  # type: ignore[union-attr]
 
 for ax in (ax1, ax2):
     ax.set_xlim(0, 2.25)

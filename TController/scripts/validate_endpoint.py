@@ -126,13 +126,14 @@ if len(peaks_ampd):
     print("  Top-3 (|dV/dt|):")
     for idx in top3:
         print(f"    vol={vol_mid[peaks_ampd[idx]]:.4f} mL  dV/dt={pv[idx]:+.2f}")
+else:
+    top3 = np.array([], dtype=int)
 
 # ═══════════════════════════════════════════════════════════════════════
 #  3. Spectral cross-entropy analysis
 # ═══════════════════════════════════════════════════════════════════════
 
 print("\n[4] 光谱通道分析…")
-from DataProcessor.endpoint import _local_maxima
 
 
 def cross_entropy(arr):
@@ -149,7 +150,7 @@ ce_721 = cross_entropy(spectra_721)
 for label, ce in [("8ch-raw", ce_8), ("721-pt", ce_721)]:
     w = min(15, len(ce) if len(ce) % 2 else len(ce) - 1)
     ce_sm = savgol_filter(ce, window=w, order=2) if w >= 5 else ce
-    lm = _local_maxima(ce_sm)
+    lm = ampd_limited(ce_sm)
     print(f"  {label}: CE∈[{ce.min():.6e}, {ce.max():.6e}], {len(lm)} 局部极大值")
     if len(lm):
         vals = ce_sm[lm]
@@ -164,23 +165,16 @@ for label, ce in [("8ch-raw", ce_8), ("721-pt", ce_721)]:
 print("\n[5] 运行 EndpointDetector (patched AMPD)…")
 import DataProcessor.endpoint as ep_mod
 
-ep_mod._ampd = lambda s, mx=None: ampd_limited(s, mx or 200)
+ep_mod._ampd_peak_idx = lambda s: (ampd_limited(s)[0] if len(ampd_limited(s)) else None)
 
 from DataProcessor.endpoint import EndpointDetector
 
-det = EndpointDetector(
-    flow_rate=FLOW_RATE,
-    potential_window=300.0,
-    spectral_window=300.0,
-    max_potential_points=6000,
-    max_spectral_frames=500,
-    consensus_threshold=1.0,
-)
+det = EndpointDetector(flow_rate=FLOW_RATE)
 
 stride = 5
 for i in range(0, N, stride):
-    det.feed_potential(float(t[i]), float(mpot[i]))
-    det.feed_spectrum(float(t[i]), spectra_721[i])
+    det.feed_potential(float(uvol_p[i]), float(t[i]), float(mpot[i]))
+    det.feed_spectrum(float(uvol_p[i]), spectra_721[i])
 
 result = det.detect()
 
@@ -226,7 +220,7 @@ ax.legend(loc="upper right")
 ax = axes[2]
 ce_label = "8ch 交叉熵 (savgol w=15)"
 ax.plot(vol_mid, savgol_filter(ce_8, window=15, order=2), "m-", lw=1, label=ce_label)
-lm_ce8 = _local_maxima(savgol_filter(ce_8, window=15, order=2))
+lm_ce8 = ampd_limited(savgol_filter(ce_8, window=15, order=2))
 if len(lm_ce8):
     ax.scatter(
         vol_mid[lm_ce8],
@@ -269,7 +263,7 @@ fig.text(
     transform=fig.transFigure,
 )
 
-plt.tight_layout(rect=[0, 0, 1, 0.92])
+plt.tight_layout(rect=(0, 0, 1, 0.92))
 out = OUT_DIR / "validation.png"
 plt.savefig(str(out), dpi=150, bbox_inches="tight")
 plt.close()
