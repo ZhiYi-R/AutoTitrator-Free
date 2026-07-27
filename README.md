@@ -1,4 +1,6 @@
-# AutoTitrator-Firmware
+# AutoTitrator-Free
+
+多模态自动滴定控制器 — STM32F103 固件 + Python 上位机。
 
 | 项目 | 值 |
 |------|-----|
@@ -7,20 +9,27 @@
 | 构建系统 | SCons |
 | 调试器 | ST-Link V2 (SWD) |
 | 语言标准 | C++23, bare-metal, no HAL |
+| 上位机 | Python 3.12+, ttkbootstrap + matplotlib |
+| 授权 | [PolyForm Shield 1.0.0](LICENSE) |
 
 ## 目录结构
 
 ```
 ├── SConstruct            # SCons 构建脚本
-├── src/
-│   └── main.cpp          # 应用入口
-├── Startup/
-│   ├── Vectors.cpp       # 中断向量表 + 启动代码 (Reset_Handler)
-│   ├── CXXStubs.cpp      # C++ 裸机运行时桩 (new/delete/guard/atexit)
-│   └── linker.ld         # 链接脚本 (64KB Flash / 20KB RAM)
-├── include/              # 公共头文件
+├── src/                  # 固件源码 (main.cpp, Interrupts.cpp)
+├── Startup/              # 启动代码 + 中断向量 + 链接脚本
+├── include/              # 固件头文件 (Platform/HAL/Device/Protocol)
+├── TController/          # Python 上位机
+│   ├── src/
+│   │   ├── main.py       # GUI 入口
+│   │   ├── Communication/# 串口通信协议
+│   │   ├── DataProcessor/# 终点检测 + 光谱重建
+│   │   └── gui/          # ttkbootstrap UI + matplotlib 绘图
+│   ├── requirements.txt  # 运行时依赖
+│   └── requirements-dev.txt
 ├── openocd.cfg           # OpenOCD 调试配置
 ├── .gdbinit              # GDB 初始化脚本
+├── LICENSE               # PolyForm Shield 1.0.0
 └── README.md
 ```
 
@@ -68,3 +77,39 @@ extern "C" void SysTick_Handler() {
 - **无 HAL / 无标准库**：所有外设寄存器需手动定义和操作
 - **堆内存**：`new` / `delete` 默认触发死循环，如需动态分配请在 `Startup/CXXStubs.cpp` 中实现
 - **静态构造**：`.init_array` 在 `main()` 之前由 `Reset_Handler` 调用，支持全局 C++ 对象的构造函数
+
+## 上位机 (TController)
+
+Python 上位机通过串口与 MCU 通信，提供实时光谱/电位曲线、滴定终点检测、泵校准和数据导出。
+
+### 运行
+
+```sh
+cd TController
+uv sync                      # 安装依赖
+uv run python src/main.py    # 启动 GUI
+```
+
+### 技术栈
+
+| 组件 | 库 | 授权 |
+|------|-----|------|
+| UI 框架 | ttkbootstrap | MIT |
+| 绘图 | matplotlib (blit 加速) | PSF/BSD |
+| 数值计算 | numpy | BSD-3 |
+| 串口通信 | pyserial | BSD-3 |
+| 数据导出 | openpyxl | MIT |
+
+### 线程模型
+
+- 串口读取：`threading.Thread` + `queue.Queue`（无 Qt 依赖）
+- GUI 轮询：`root.after()` 递归调度，80ms 刷新绘图
+- 通信事件：`ProtocolHandler.poll()` 排空队列并分发回调
+
+## 授权
+
+本项目采用 [PolyForm Shield 1.0.0](LICENSE) 授权。
+
+- 允许个人学习、研究、内部使用
+- 禁止将本软件或其衍生品作为竞争产品提供
+- 分发时必须附带本许可证全文或其 URL
