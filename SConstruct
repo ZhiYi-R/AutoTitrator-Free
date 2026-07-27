@@ -64,6 +64,7 @@ VariantDir('build/obj/Startup', 'Startup', duplicate=0)
 
 # ---- Source files (from variant dirs) ----
 sources  = Glob('build/obj/src/*.cpp')
+sources += Glob('build/obj/src/**/*.cpp')
 sources += Glob('build/obj/Startup/*.cpp')
 
 # ---- Build targets ----
