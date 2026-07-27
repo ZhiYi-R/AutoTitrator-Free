@@ -6,22 +6,14 @@
 
 from __future__ import annotations
 
+import tkinter as tk
 from typing import Final
 
+import ttkbootstrap as ttk
 from Communication import ProtocolHandler
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QFrame,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
 
 
-class _OperationPanel(QGroupBox):
+class _OperationPanel(ttk.LabelFrame):
     """单个维护操作面板：泵复选框 + 启停 + 说明。"""
 
     # 泵编号 → 显示名称
@@ -32,121 +24,111 @@ class _OperationPanel(QGroupBox):
         title: str,
         instructions: str,
         com: ProtocolHandler,
-        parent: QWidget | None = None,
+        parent: tk.Misc | None = None,
     ) -> None:
-        super().__init__(title, parent)
+        super().__init__(parent, text=title)
         self._com = com
 
-        self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(12, 16, 12, 12)
-        self.layout().setSpacing(8)
+        inner = ttk.Frame(self)
+        inner.pack(fill="both", expand=True, padx=12, pady=(16, 12))
 
         # 泵选择（复选框，可多选）
-        ctrl = QHBoxLayout()
-        ctrl.setSpacing(8)
+        ctrl = ttk.Frame(inner)
+        ctrl.pack(fill="x")
 
-        ctrl.addWidget(QLabel("选择泵:"))
-        self._cb1 = QCheckBox("进样泵")
-        self._cb1.setChecked(True)
-        ctrl.addWidget(self._cb1)
-        self._cb2 = QCheckBox("滴定泵")
-        self._cb2.setChecked(True)
-        ctrl.addWidget(self._cb2)
+        ttk.Label(ctrl, text="选择泵:").pack(side="left")
 
-        ctrl.addSpacing(12)
-        self._start_btn = QPushButton("启动")
-        self._start_btn.setStyleSheet(
-            "QPushButton { font-weight: bold; color: #fff; background: #27ae60; }"
-            "QPushButton:hover { background: #2ecc71; }"
-            "QPushButton:disabled { background: #95a5a6; }"
+        self._cb1_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(ctrl, text="进样泵", variable=self._cb1_var).pack(
+            side="left", padx=(8, 0)
         )
-        self._start_btn.clicked.connect(self._start)
-        ctrl.addWidget(self._start_btn)
-
-        self._stop_btn = QPushButton("停止")
-        self._stop_btn.setStyleSheet(
-            "QPushButton { color: #fff; background: #c0392b; }"
-            "QPushButton:hover { background: #e74c3c; }"
-            "QPushButton:disabled { background: #95a5a6; }"
+        self._cb2_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(ctrl, text="滴定泵", variable=self._cb2_var).pack(
+            side="left", padx=(8, 0)
         )
-        self._stop_btn.setEnabled(False)
-        self._stop_btn.clicked.connect(self._stop)
-        ctrl.addWidget(self._stop_btn)
 
-        ctrl.addStretch()
-        self.layout().addLayout(ctrl)
+        ctrl.pack_propagate(False)
+
+        btn_frame = ttk.Frame(inner)
+        btn_frame.pack(fill="x", pady=(8, 0))
+
+        self._start_btn = ttk.Button(btn_frame, text="启动", command=self._start)
+        self._start_btn.pack(side="left", padx=(12, 0))
+
+        self._stop_btn = ttk.Button(btn_frame, text="停止", command=self._stop)
+        self._stop_btn.pack(side="left", padx=(8, 0))
+        self._stop_btn.state(["disabled"])
 
         # 运行状态提示
-        self._status_label = QLabel("")
-        self._status_label.setStyleSheet("font-style: italic;")
-        self.layout().addWidget(self._status_label)
+        self._status_label = ttk.Label(inner, text="", font=("", 9, "italic"))
+        self._status_label.pack(fill="x", pady=(8, 0))
+
+        # 分隔
+        ttk.Separator(inner, orient="horizontal").pack(fill="x", pady=8)
 
         # 操作说明
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setFrameShadow(QFrame.Shadow.Sunken)
-        self.layout().addWidget(sep)
-
-        info = QLabel(instructions)
-        info.setWordWrap(True)
-        info.setStyleSheet("font-size: 11px;")
-        self.layout().addWidget(info)
+        info = ttk.Label(inner, text=instructions, wraplength=600, font=("", 9))
+        info.pack(fill="x")
 
     def _start(self) -> None:
         pumps = []
-        if self._cb1.isChecked():
+        if self._cb1_var.get():
             pumps.append(1)
-        if self._cb2.isChecked():
+        if self._cb2_var.get():
             pumps.append(2)
         if not pumps:
             return
         for p in pumps:
             self._com.send_frerun(p)
         label = " + ".join(self.PUMP_NAMES[p] for p in pumps)
-        self._start_btn.setEnabled(False)
-        self._stop_btn.setEnabled(True)
-        self._status_label.setText(f"{label} 运行中… 请观察，完成后点击停止")
-        self._status_label.setStyleSheet("color: #27ae60; font-weight: bold;")
+        self._start_btn.state(["disabled"])
+        self._stop_btn.state(["!disabled"])
+        self._status_label.config(
+            text=f"{label} 运行中… 请观察，完成后点击停止",
+            foreground="#27ae60",
+            font=("", 9, "bold"),
+        )
 
     def _stop(self) -> None:
         # 停止所有当前选中的泵（运行时可能记不住，干脆停止全部）
         self._com.send_frestop(0xFF)
-        self._start_btn.setEnabled(True)
-        self._stop_btn.setEnabled(False)
-        self._status_label.setText("已停止")
-        self._status_label.setStyleSheet("font-style: italic;")
+        self._start_btn.state(["!disabled"])
+        self._stop_btn.state(["disabled"])
+        self._status_label.config(text="已停止", font=("", 9, "italic"))
 
     def set_connected(self, connected: bool) -> None:
         """串口状态变化时启用/禁用控件。"""
-        self._start_btn.setEnabled(connected)
-        if not connected:
-            self._stop_btn.setEnabled(False)
-            self._status_label.setText("")
-            self._status_label.setStyleSheet("font-style: italic;")
+        if connected:
+            self._start_btn.state(["!disabled"])
+        else:
+            self._start_btn.state(["disabled"])
+            self._stop_btn.state(["disabled"])
+            self._status_label.config(text="", font=("", 9, "italic"))
 
 
-class MaintenanceTab(QWidget):
+class MaintenanceTab(ttk.Frame):
     """维护标签页。"""
 
-    def __init__(self, com: ProtocolHandler, parent: QWidget | None = None) -> None:
+    def __init__(self, com: ProtocolHandler, parent: tk.Misc | None = None) -> None:
         super().__init__(parent)
         self._com = com
 
-        self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(12, 12, 12, 12)
-        self.layout().setSpacing(12)
+        inner = ttk.Frame(self)
+        inner.pack(fill="both", expand=True, padx=12, pady=12)
 
-        title = QLabel("维护操作")
-        title.setStyleSheet("font-weight: bold; font-size: 15px;")
-        self.layout().addWidget(title)
+        title = ttk.Label(inner, text="维护操作", font=("", 13, "bold"))
+        title.pack(anchor="w")
 
-        subtitle = QLabel(
-            "以下操作均使用 FreeRun 模式（持续运行直到手动停止）。\n"
-            "启动后请肉眼观察管路状态，确认完成后点击「停止」。"
+        subtitle = ttk.Label(
+            inner,
+            text=(
+                "以下操作均使用 FreeRun 模式（持续运行直到手动停止）。\n"
+                "启动后请肉眼观察管路状态，确认完成后点击「停止」。"
+            ),
+            wraplength=600,
+            font=("", 9),
         )
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("margin-bottom: 4px;")
-        self.layout().addWidget(subtitle)
+        subtitle.pack(anchor="w", pady=(4, 12))
 
         # ---- 排空管路 ----
         self._empty_panel = _OperationPanel(
@@ -156,8 +138,9 @@ class MaintenanceTab(QWidget):
                 "肉眼观察管内液体排空后，点击「停止」。"
             ),
             com=com,
+            parent=inner,
         )
-        self.layout().addWidget(self._empty_panel)
+        self._empty_panel.pack(fill="x", pady=4)
 
         # ---- 充满管路（滴定前） ----
         self._fill_panel = _OperationPanel(
@@ -169,8 +152,9 @@ class MaintenanceTab(QWidget):
                 "待液体连续流出、管内无气泡后，点击「停止」。"
             ),
             com=com,
+            parent=inner,
         )
-        self.layout().addWidget(self._fill_panel)
+        self._fill_panel.pack(fill="x", pady=4)
 
         # ---- 清洗管路 ----
         self._wash_panel = _OperationPanel(
@@ -182,10 +166,9 @@ class MaintenanceTab(QWidget):
                 "清洗后如需立即使用，请用「充满管路」排出残留水份。"
             ),
             com=com,
+            parent=inner,
         )
-        self.layout().addWidget(self._wash_panel)
-
-        self.layout().addStretch()
+        self._wash_panel.pack(fill="x", pady=4)
 
     def set_connected(self, connected: bool) -> None:
         """串口连接状态变化时同步更新各面板。"""
