@@ -28,12 +28,14 @@ DEFAULT_OUTPUT_DIR = Path("include/stm32f103")
 DEFAULT_NAMESPACE = "STM32F103"
 
 
-def make_identifier(name: str) -> str:
+def make_identifier(name: str | None) -> str:
     """Sanitize an SVD name to a valid C++ identifier.
 
     Keeps original casing as requested by the user.  Prepends an underscore
-    if the name starts with a digit.
+    if the name starts with a digit.  Returns "Unknown" if name is None.
     """
+    if name is None:
+        return "Unknown"
     sanitized = re.sub(r"[^0-9a-zA-Z_]", "_", name)
     if sanitized and sanitized[0].isdigit():
         sanitized = "_" + sanitized
@@ -101,7 +103,7 @@ def generate_register_class(peripheral_name: str, reg, base_address: int) -> str
 
     private_lines: list[str] = [
         f"static constexpr std::uintptr_t Address = {hex(address)};",
-        f"using Reg = CortexM3::Register<ValueType, Address>;",
+        "using Reg = CortexM3::Register<ValueType, Address>;",
     ]
 
     seen_field_names: set[str] = set()
@@ -198,7 +200,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
 
     generated: list[str] = []
-    for peripheral in device.peripherals:
+    for peripheral in device.get_peripherals():
         header_name = f"{make_identifier(peripheral.name)}.hpp"
         header_path = args.out / header_name
         header_path.write_text(
