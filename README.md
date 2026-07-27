@@ -1,110 +1,208 @@
 # AutoTitrator-Free
 
-多模态自动滴定控制器 — STM32F103 固件 + Python 上位机。
+多模态自动滴定控制器 —— STM32F103 裸机固件 + Python 上位机。
+
+## 项目概览
 
 | 项目 | 值 |
 |------|-----|
-| MCU | STM32F103C8T6 (Cortex-M3) |
+| MCU | STM32F103C8T6 (ARM Cortex-M3) |
+| Flash | 64 KB @ 0x08000000 |
+| RAM | 20 KB @ 0x20000000 |
 | 工具链 | GCC ARM (`arm-none-eabi-g++`) |
+| 语言标准 | C++23，裸机，无 HAL / 无 RTOS / 无堆 |
 | 构建系统 | SCons |
 | 调试器 | ST-Link V2 (SWD) |
-| 语言标准 | C++23, bare-metal, no HAL |
-| 上位机 | Python 3.12+, ttkbootstrap + matplotlib |
+| 上位机 | Python 3.12+，ttkbootstrap + matplotlib |
 | 授权 | [PolyForm Shield 1.0.0](LICENSE) |
 
 ## 目录结构
 
 ```
-├── SConstruct            # SCons 构建脚本
-├── src/                  # 固件源码 (main.cpp, Interrupts.cpp)
-├── Startup/              # 启动代码 + 中断向量 + 链接脚本
-├── include/              # 固件头文件 (Platform/HAL/Device/Protocol)
-├── TController/          # Python 上位机
-│   └── src/
-│       ├── main.py       # GUI 入口
-│       ├── Communication/# 串口通信协议
-│       ├── DataProcessor/# 终点检测 + 光谱重建
-│       └── gui/          # ttkbootstrap UI + matplotlib 绘图
-├── requirements.txt      # 上位机运行时依赖
-├── requirements-dev.txt  # 运行时 + scons 固件构建 + ruff/pyright
-├── openocd.cfg           # OpenOCD 调试配置
-├── .gdbinit              # GDB 初始化脚本
-├── LICENSE               # PolyForm Shield 1.0.0
-└── README.md
+AutoTitrator-Free
+├── SConstruct              # SCons 构建脚本
+├── Startup/                # 启动代码、中断向量表、链接脚本
+│   ├── Vectors.cpp
+│   ├── linker.ld
+│   └── CXXStubs.cpp
+├── src/                    # 固件应用源码
+│   ├── main.cpp            # 主循环入口
+│   └── Interrupts.cpp      # 中断处理函数
+├── include/                # 头文件
+│   ├── register/           # Cortex-M3 寄存器/MMIO 抽象层
+│   ├── stm32f103/          # 从 SVD 自动生成的 61 个外设头文件
+│   ├── platform/           # 系统时钟、SysTick、NVIC 辅助
+│   ├── hal/                # 外设 HAL 驱动
+│   ├── device/             # 设备级驱动
+│   └── protocol/           # 通信协议栈
+├── TController/            # Python 上位机
+│   ├── src/
+│   │   ├── main.py         # GUI 入口
+│   │   ├── Communication/  # 串口通信与协议解析
+│   │   ├── DataProcessor/  # 终点检测、光谱重建、泵校准
+│   │   └── gui/            # ttkbootstrap UI 与 matplotlib 绘图
+│   ├── data/               # 校准数据
+│   └── scripts/            # 离线验证脚本
+├── scripts/                # 代码生成脚本
+│   └── generate_stm32f103.py   # 从 CMSIS-SVD 生成外设头文件
+├── requirements.txt        # 上位机运行时依赖
+├── requirements-dev.txt    # 开发/构建依赖
+├── openocd.cfg             # OpenOCD 调试配置
+├── .gdbinit                # GDB 初始化脚本
+├── pyrightconfig.json      # Python 类型检查配置
+├── ruff.toml               # Python lint 配置
+├── README.md
+└── LICENSE
 ```
 
-## 构建
+## 固件架构
+
+### 1. 寄存器抽象层
+
+位于 `include/register/`，为 header-only、纯 C++23、零运行时开销的 MMIO 抽象：
+
+- `CortexM3::Register<T, Address>`：整寄存器读写、位域读写、原子 `Set` / `Clear` / `Modify`。
+- `CortexM3::Field<T, Position, Width>`：位域类型，`Mask()` 在编译期计算。
+- `atomic.hpp`：通过 `LDREX` / `STREX` 实现 8/16/32 位原子 RMW。
+
+### 2. 外设头文件生成
+
+`include/stm32f103/` 下 61 个外设头文件由 `scripts/generate_stm32f103.py` 从 CMSIS-SVD 自动生成：
 
 ```sh
-# 需要 arm-none-eabi 工具链在 PATH 中
-scons
+uv run scripts/generate_stm32f103.py
+```
 
-# 指定工具链前缀
+每个寄存器对应一个纯静态单例类，按 SVD `<access>` 属性生成 `Read` / `Write` 与按位域访问方法，命名空间为 `STM32F103::{Peripheral}`。
+
+### 3. HAL 层
+
+| 文件 | 外设 | 说明 |
+|------|------|------|
+| `include/hal/GPIO.hpp` | GPIO | 端口模式/上下拉/速度配置、置位/读取 |
+| `include/hal/UART.hpp` | USART1 | RX 用 DMA1_CH5 循环 + IDLE 中断，TX 用 TXE 中断逐字节 |
+| `include/hal/I2C.hpp` | I2C1 | 100 kHz，PB8/PB9，同步阻塞 + 异步中断双模式 |
+| `include/hal/TIM.hpp` | TIM3 / TIM4 | TIM3 作为 ADC 触发时基，TIM4 双通道 PWM 驱动蠕动泵 |
+| `include/hal/ADC.hpp` | ADC1 | 单通道 PA0，TIM3_TRGO 触发，EOC 中断 |
+
+### 4. 设备驱动与协议栈
+
+| 文件 | 功能 |
+|------|------|
+| `include/device/PumpMotor.hpp` | 两个蠕动泵驱动（TIM4 CH1/CH2），支持 MaxCount / FreeRun |
+| `include/device/ADCOversample.hpp` | 256 次 ADC 累加过采样，右移 4 位输出 16-bit 结果 |
+| `include/device/AS7341.hpp` | AS7341 光谱传感器驱动，两 phase SMUX 扫描状态机 |
+| `include/device/SerialPort.hpp` | 环形缓冲 RX + 中断逐字节 TX |
+| `include/protocol/CommandDispatcher.hpp` | 解析下行命令、调用设备 API、打包上行数据 |
+| `include/protocol/FrameCodec.hpp` | CRC-8（Maxim-Dallas, poly = 0x31）编解码 |
+| `include/protocol/CommandParser.hpp` | 下行帧状态机解析器 |
+
+### 5. 中断分配
+
+| 中断 | 优先级 | 用途 |
+|------|--------|------|
+| USART1 | 0 | IDLE 接收 + TXE 发送 |
+| DMA1_Channel5 | 0 | USART1 RX DMA half/full |
+| TIM4 | 1 | 泵脉冲计数 |
+| ADC1_2 | 2 | ADC 转换完成 |
+| I2C1_EV / I2C1_ER | 2 | AS7341 异步 I2C |
+| SysTick | 15 | 1 ms 时基 |
+
+所有中断处理函数在 `Startup/Vectors.cpp` 中以 `[[gnu::weak]]` 声明为弱符号并默认指向 `Default_Handler`，用户只需在任意 `.cpp` 中定义同名 `extern "C"` 函数即可覆盖。
+
+### 6. 主循环
+
+`src/main.cpp` 初始化时钟、SysTick、LED、串口、泵、ADC 过采样和 AS7341，随后在主循环中轮询协议服务、光谱服务和 ADC 服务，并在光谱测量完成后自动启动下一轮采集。
+
+## 构建与烧录
+
+### 固件构建
+
+需要 `arm-none-eabi` 工具链在 PATH 中：
+
+```sh
+scons
+# 或指定前缀
 scons CROSS=arm-none-eabi-
 ```
 
-构建产物在 `build/` 目录下：
-- `AutoTitrator-Firmware.elf` — ELF 可执行文件（含调试信息）
+构建产物位于 `build/`：
+
+- `AutoTitrator-Firmware.elf` — 可执行文件（含调试信息）
 - `AutoTitrator-Firmware.hex` — Intel HEX
 - `AutoTitrator-Firmware.map` — 内存映射
 - `AutoTitrator-Firmware.lst` — 反汇编清单
 
-清理：`scons -c`
-
-## 烧录与调试
+清理：
 
 ```sh
-# Terminal 1 — 启动 OpenOCD 调试服务
+scons -c
+```
+
+### 烧录与调试
+
+```sh
+# Terminal 1 — 启动 OpenOCD
+cd D:/Projects/AutoTitrator-Free
 openocd -f openocd.cfg
 
 # Terminal 2 — 连接 GDB
 arm-none-eabi-gdb build/AutoTitrator-Firmware.elf -x .gdbinit
 ```
 
-## 中断使用
-
-所有中断处理函数在 `Startup/Vectors.cpp` 中以 `[[gnu::weak]]` 声明为弱符号，
-默认指向 `Default_Handler`（死循环）。用户只需在任意 `.cpp` 中定义同名函数即可覆盖：
-
-```cpp
-extern "C" void SysTick_Handler() {
-    // 你的 SysTick 处理逻辑
-}
-```
-
-## 注意事项
-
-- **无 HAL / 无标准库**：所有外设寄存器需手动定义和操作
-- **堆内存**：`new` / `delete` 默认触发死循环，如需动态分配请在 `Startup/CXXStubs.cpp` 中实现
-- **静态构造**：`.init_array` 在 `main()` 之前由 `Reset_Handler` 调用，支持全局 C++ 对象的构造函数
-
-## 上位机 (TController)
-
-Python 上位机通过串口与 MCU 通信，提供实时光谱/电位曲线、滴定终点检测、泵校准和数据导出。
-
-### 运行
+### 上位机运行
 
 ```sh
-# 在项目根目录执行（requirements.txt 在根目录）
-uv pip install -r requirements.txt        # 安装运行时依赖
-uv run python TController/src/main.py     # 启动 GUI
+uv pip install -r requirements.txt
+uv run python TController/src/main.py
 ```
+
+开发依赖（含 SCons、ruff、pyright）使用：
+
+```sh
+uv pip install -r requirements-dev.txt
+```
+
+## 上位机（TController）
+
+Python 上位机通过串口与 MCU 通信，提供：
+
+- 实时光谱曲线与电位曲线
+- 在线滴定终点检测
+- 双泵控制与进度显示
+- 泵校准与 pH 电极校准
+- 数据记录与 Excel 导出
+
+### 主要模块
+
+| 目录 | 功能 |
+|------|------|
+| `TController/src/Communication/` | 串口后台线程、协议帧解析、事件队列 |
+| `TController/src/DataProcessor/` | 终点检测（EWMA + 自适应阈值 + AMPD）、光谱重建、泵校准 |
+| `TController/src/gui/` | ttkbootstrap 主窗口、绘图控件、校准/维护标签页 |
+| `TController/scripts/` | 离线验证与实时回放脚本 |
 
 ### 技术栈
 
 | 组件 | 库 | 授权 |
 |------|-----|------|
 | UI 框架 | ttkbootstrap | MIT |
-| 绘图 | matplotlib (blit 加速) | PSF/BSD |
+| 绘图 | matplotlib（blit 加速） | PSF/BSD |
 | 数值计算 | numpy | BSD-3 |
 | 串口通信 | pyserial | BSD-3 |
 | 数据导出 | openpyxl | MIT |
 
 ### 线程模型
 
-- 串口读取：`threading.Thread` + `queue.Queue`（无 Qt 依赖）
-- GUI 轮询：`root.after()` 递归调度，80ms 刷新绘图
+- 串口读取：`threading.Thread` + `queue.Queue`
+- GUI 轮询：`root.after()` 递归调度，约 80 ms 刷新绘图
 - 通信事件：`ProtocolHandler.poll()` 排空队列并分发回调
+
+## 注意事项
+
+- **无 HAL / 无标准库**：所有外设寄存器通过自定义抽象层直接访问。
+- **堆内存**：`new` / `delete` 默认触发死循环；如需动态分配请在 `Startup/CXXStubs.cpp` 中实现。
+- **静态构造**：`.init_array` 在 `main()` 之前由 `Reset_Handler` 调用，支持全局 C++ 对象的构造函数。
 
 ## 授权
 
