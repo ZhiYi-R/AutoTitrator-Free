@@ -9,7 +9,8 @@
       "extraPaths": ["TController/src"],
       "reportOptionalMemberAccess": "none",
       "reportAttributeAccessIssue": "none",
-      "reportSelfClsParameterName": "none"
+      "reportSelfClsParameterName": "none",
+      "reportCallIssue": "none"
     },
     {
       "root": "TController/src",
