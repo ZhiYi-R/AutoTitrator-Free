@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from Communication import ProtocolHandler
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -22,7 +24,7 @@ from PySide6.QtWidgets import (
 class _OperationPanel(QGroupBox):
     """单个维护操作面板：泵复选框 + 启停 + 说明。"""
     # 泵编号 → 显示名称
-    PUMP_NAMES: dict[int, str] = {1: "进样泵", 2: "滴定泵"}
+    PUMP_NAMES: Final[dict[int, str]] = {1: "进样泵", 2: "滴定泵"}
 
     def __init__(self, title: str, instructions: str, com: ProtocolHandler,
                  parent: QWidget | None = None) -> None:

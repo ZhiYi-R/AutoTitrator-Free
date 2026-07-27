@@ -103,7 +103,7 @@ sc, = ax2.plot([], [], "o", c="red", ms=3, alpha=0.6, label="CONFIRMED")
 ep = ax2.axvline(0, color="red", ls="--", lw=2, alpha=0, label="Endpoint")
 tx = ax1.text(0.02, 0.97, "", transform=ax1.transAxes, fontfamily="monospace",
               fontsize=9, va="top",
-              bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", alpha=0.9))
+              bbox={"boxstyle": "round,pad=0.3", "fc": "lightyellow", "alpha": 0.9})
 for ax in (ax1, ax2): ax.legend(fontsize=8, loc="lower right")
 
 # ── 逐点回放（每 stride 步刷新一次） ─────────────────────────────────

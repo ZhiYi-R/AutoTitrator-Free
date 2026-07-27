@@ -424,7 +424,7 @@ class MainWindow(QMainWindow):
         if not self._adc_buffer:
             return
         t = time.monotonic() - self._t0
-        raw_avg = int(round(sum(self._adc_buffer) / len(self._adc_buffer)))
+        raw_avg = round(sum(self._adc_buffer) / len(self._adc_buffer))
         v = raw_avg * 3.3 / 65535 - 1.1
         vol = self._pump1_volume if self._state == TitrationState.INJECTING else self._pump2_volume
         self._potential_widget.append(t, raw_avg, volume=vol)
@@ -620,7 +620,7 @@ class MainWindow(QMainWindow):
         os.makedirs(out_dir, exist_ok=True)
 
         c_std = self._results_panel._c_std.value()
-        ts = datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+        ts = datetime.now().strftime("%y-%m-%d-%H-%M-%S")  # noqa: DTZ005 文件名时间戳用本地时间
         filename = f"std_conc_{c_std}_{ts}.xlsx"
         filepath = os.path.join(out_dir, filename)
 
@@ -736,7 +736,7 @@ class MainWindow(QMainWindow):
         if data is None:
             self._potential_widget.clear_calibration()
         else:
-            name, slope, intercept, unit = data
+            _name, slope, intercept, unit = data
             self._potential_widget.set_calibration(unit, slope, intercept)
         self._potential_widget.refresh()
 

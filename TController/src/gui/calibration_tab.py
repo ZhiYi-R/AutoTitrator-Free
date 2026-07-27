@@ -512,7 +512,7 @@ class PHCalibWidget(QWidget):
         if len(self._data["electrodes"]) <= 1:
             return  # 至少保留一个
         del self._data["electrodes"][name]
-        self._data["current"] = list(self._data["electrodes"].keys())[0]
+        self._data["current"] = next(iter(self._data["electrodes"].keys()))
         self._rebuild_combo()
         self._save_data()
 

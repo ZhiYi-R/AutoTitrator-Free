@@ -222,7 +222,7 @@ lines.append("")
 lines.append("AMPD max_scale=200")
 lines.append(f"数据 {N}步 | 流速 {FLOW_RATE:.6f}")
 
-bbox = dict(boxstyle="round,pad=0.5", fc="lightyellow", alpha=0.9)
+bbox = {"boxstyle": "round,pad=0.5", "fc": "lightyellow", "alpha": 0.9}
 fig.text(0.70, 0.92, "\n".join(lines), fontfamily="monospace", fontsize=9,
          va="top", bbox=bbox, transform=fig.transFigure)
 
