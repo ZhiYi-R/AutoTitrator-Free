@@ -1,5 +1,5 @@
 """
-ProtocolHandler — 不可见 QWidget，封装上下位机通信协议。
+ProtocolHandler — 封装上下位机通信协议（threading + queue，无 Qt 依赖）。
 
 上行帧 (MCU → Host)::
     AA 55 | 类型(1B) | 数据(NB) | CRC8(类型+数据)
@@ -10,18 +10,27 @@ ProtocolHandler — 不可见 QWidget，封装上下位机通信协议。
 使用方法::
 
     com = ProtocolHandler(port="/dev/ttyUSB0", baudrate=115200)
-    com.spectral_data.connect(self.on_spectral)
+    com.on("spectral", on_spectral)
+    com.on("adc", on_adc)
     com.connect()
     com.send_frerun(1)
+
+    # GUI 主循环中轮询事件
+    com.poll()
 """
 
 from __future__ import annotations
 
+import queue
+import threading
+import time
 from collections import deque
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import IntEnum, auto
+from typing import Any
 
 import serial
-from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
 # ---- CRC-8 (Maxim-Dallas, poly = 0x31) ----
 
@@ -74,6 +83,22 @@ FIFO_RAW_CHUNKS = 512
 
 
 # ======================================================================
+#  事件（替代 Qt Signal）
+# ======================================================================
+
+
+@dataclass
+class _Event:
+    """通信事件，由后台线程写入队列，由 poll() 在主线程消费。"""
+
+    kind: str
+    """事件类型：connected / disconnected / error / spectral / adc / ack / nak / pump_done / stop_rpt / pump1_progress / pump2_progress"""
+
+    data: Any = None
+    """事件数据，类型随 kind 变化。"""
+
+
+# ======================================================================
 #  上行帧解析器（状态机）
 # ======================================================================
 
@@ -85,13 +110,10 @@ class _State(IntEnum):
     CHECKSUM = auto()
 
 
-class _UplinkParser(QObject):
+class _UplinkParser:
     """逐字节状态机，解析 AA 55 上行帧。"""
 
-    frame_ready = Signal(int, bytes)  # type, payload
-
-    def __init__(self, parent: QObject | None = None) -> None:
-        super().__init__(parent)
+    def __init__(self) -> None:
         self.reset()
 
     def reset(self) -> None:
@@ -101,11 +123,16 @@ class _UplinkParser(QObject):
         self._data_len = 0
         self._buf = bytearray()
 
-    def feed(self, data: bytes) -> None:
+    def feed(self, data: bytes) -> list[tuple[int, bytes]]:
+        """喂入字节流，返回本批次解析出的 (type, payload) 列表。"""
+        frames: list[tuple[int, bytes]] = []
         for b in data:
-            self._feed_byte(b)
+            frame = self._feed_byte(b)
+            if frame is not None:
+                frames.append(frame)
+        return frames
 
-    def _feed_byte(self, b: int) -> None:
+    def _feed_byte(self, b: int) -> tuple[int, bytes] | None:
         if self._state == _State.SYNC:
             if b == 0xAA:
                 self._buf.append(b)
@@ -120,7 +147,7 @@ class _UplinkParser(QObject):
             self._data_len = _UPLINK.get(b, 0xFFFF)
             if self._data_len == 0xFFFF:
                 self.reset()
-                return
+                return None
             self._data.clear()
             self._state = _State.CHECKSUM if self._data_len == 0 else _State.DATA
 
@@ -131,9 +158,13 @@ class _UplinkParser(QObject):
 
         elif self._state == _State.CHECKSUM:
             cs = _crc8(bytes([self._type]) + bytes(self._data))
+            result: tuple[int, bytes] | None = None
             if cs == b:
-                self.frame_ready.emit(self._type, bytes(self._data))
+                result = (self._type, bytes(self._data))
             self.reset()
+            return result
+
+        return None
 
 
 # ======================================================================
@@ -141,21 +172,15 @@ class _UplinkParser(QObject):
 # ======================================================================
 
 
-class _SerialReader(QThread):
-    """后台读取串口数据、解析上行帧并存入 FIFO。"""
+class _SerialReader(threading.Thread):
+    """后台读取串口数据、解析上行帧并写入事件队列。"""
 
-    frame_ready = Signal(int, bytes)
-    raw_data = Signal(bytes)
-    error_occurred = Signal(str)
-    connection_made = Signal()
-    connection_lost = Signal()
-
-    def __init__(self, parent: QObject | None = None) -> None:
-        super().__init__(parent)
+    def __init__(self, event_queue: queue.Queue[_Event]) -> None:
+        super().__init__(daemon=True)
         self._port: serial.Serial | None = None
         self._running = False
         self._parser = _UplinkParser()
-        self._parser.frame_ready.connect(self._on_frame)
+        self._event_queue = event_queue
 
         self.spectral_queue: deque[list[int]] = deque(maxlen=FIFO_SPECTRAL_MAX)
         self.adc_queue: deque[int] = deque(maxlen=FIFO_ADC_MAX)
@@ -177,11 +202,11 @@ class _SerialReader(QThread):
             )
             self._parser.reset()
             self._running = True
-            if not self.isRunning():
+            if not self.is_alive():
                 self.start()
-            self.connection_made.emit()
+            self._event_queue.put(_Event("connected"))
         except serial.SerialException as exc:
-            self.error_occurred.emit(str(exc))
+            self._event_queue.put(_Event("error", str(exc)))
 
     def close(self) -> None:
         self._running = False
@@ -191,7 +216,7 @@ class _SerialReader(QThread):
             except Exception:
                 pass
         self._port = None
-        self.connection_lost.emit()
+        self._event_queue.put(_Event("disconnected"))
 
     @property
     def is_open(self) -> bool:
@@ -207,10 +232,53 @@ class _SerialReader(QThread):
         if typ == 0x01 and len(payload) == 20:
             vals = [payload[i] | (payload[i + 1] << 8) for i in range(0, 20, 2)]
             self.spectral_queue.append(vals)
+            self._event_queue.put(_Event("spectral", vals))
         elif typ == 0x02 and len(payload) == 6:
             val = payload[0] | (payload[1] << 8)
+            pos = (
+                payload[2]
+                | (payload[3] << 8)
+                | (payload[4] << 16)
+                | (payload[5] << 24)
+            )
             self.adc_queue.append(val)
-        self.frame_ready.emit(typ, payload)
+            self._event_queue.put(_Event("adc", (val, pos)))
+        elif typ == 0x81:
+            self._event_queue.put(_Event("ack"))
+        elif typ == 0xFF:
+            self._event_queue.put(_Event("nak"))
+        elif typ == 0x82 and len(payload) == 4:
+            pos = (
+                payload[0]
+                | (payload[1] << 8)
+                | (payload[2] << 16)
+                | (payload[3] << 24)
+            )
+            self._event_queue.put(_Event("pump_done", pos))
+        elif typ in (0x83, 0x84, 0x85) and len(payload) == 4:
+            pos = (
+                payload[0]
+                | (payload[1] << 8)
+                | (payload[2] << 16)
+                | (payload[3] << 24)
+            )
+            self._event_queue.put(_Event("stop_rpt", pos))
+        elif typ == 0x86 and len(payload) == 4:
+            pos = (
+                payload[0]
+                | (payload[1] << 8)
+                | (payload[2] << 16)
+                | (payload[3] << 24)
+            )
+            self._event_queue.put(_Event("pump1_progress", pos))
+        elif typ == 0x87 and len(payload) == 4:
+            pos = (
+                payload[0]
+                | (payload[1] << 8)
+                | (payload[2] << 16)
+                | (payload[3] << 24)
+            )
+            self._event_queue.put(_Event("pump2_progress", pos))
 
     # ---- 线程主循环 ----
 
@@ -220,14 +288,16 @@ class _SerialReader(QThread):
                 if self._port.in_waiting:
                     raw = self._port.read(self._port.in_waiting)
                     self.raw_queue.append(raw)
-                    self._parser.feed(raw)
+                    frames = self._parser.feed(raw)
+                    for typ, payload in frames:
+                        self._on_frame(typ, payload)
                 else:
-                    self.msleep(5)
+                    time.sleep(0.005)
             except serial.SerialException as exc:
-                self.error_occurred.emit(str(exc))
+                self._event_queue.put(_Event("error", str(exc)))
                 break
             except Exception as exc:
-                self.error_occurred.emit(str(exc))
+                self._event_queue.put(_Event("error", str(exc)))
                 break
         self.close()
 
@@ -237,59 +307,84 @@ class _SerialReader(QThread):
 # ======================================================================
 
 
-class ProtocolHandler(QObject):
-    """不可见 QObject，封装上下位机串口通信协议。
+class ProtocolHandler:
+    """封装上下位机串口通信协议（threading + queue，无 Qt 依赖）。
 
     串口参数通过构造函数传入，调用 connect() 建立连接。
-    接收数据通过 Qt 信号 / pop_xxx() 方法获取，发送命令
+    接收数据通过 on() 注册回调 + poll() 轮询，发送命令
     通过 send_xxx() 方法。
     """
 
-    # ---- 数据信号 ----
-    spectral_data = Signal(list)
-    """10 通道光谱值 [F1, ..., F8, Clear, NIR]。"""
-
-    adc_data = Signal(int, int)
-    """ADC 过采样读数 + Pump2 位置 (raw_adc, pump2_pos)。"""
-
-    # ---- 状态信号 ----
-    ack_received = Signal()
-    nak_received = Signal()
-    pump_done = Signal(int)
-    """泵完成报告，参数为位置(uint32)。"""
-    stop_rpt = Signal(int)
-    """泵停止报告，参数为位置(uint32)。"""
-    pump1_progress = Signal(int)
-    """Pump1 脉冲进度（每 1000 脉冲/次），参数为当前位置(uint32)。"""
-    pump2_progress = Signal(int)
-    """Pump2 脉冲进度（每 1000 脉冲/次），参数为当前位置(uint32)。"""
-    error_occurred = Signal(str)
-    connected = Signal()
-    disconnected = Signal()
-
-    def __init__(
-        self, port: str = "", baudrate: int = 115200, parent: QObject | None = None
-    ) -> None:
-        super().__init__(parent)
+    def __init__(self, port: str = "", baudrate: int = 115200) -> None:
         self._port_name = port
         self._baudrate = baudrate
-        self._reader = _SerialReader(self)
+        self._event_queue: queue.Queue[_Event] = queue.Queue()
+        self._reader = _SerialReader(self._event_queue)
 
-        self._reader.frame_ready.connect(self._on_frame_ready)
-        self._reader.error_occurred.connect(self.error_occurred)
-        self._reader.connection_made.connect(self.connected)
-        self._reader.connection_lost.connect(self.disconnected)
+        # 用户回调
+        self._callbacks: dict[str, list[Callable[[Any], None]]] = {}
+
+        # 单次回调（替代 Qt SingleShotConnection）
+        self._pump_done_once: Callable[[int], None] | None = None
 
         # ACK/NAK 重试
         self._pending_cmd: bytes | None = None
         self._retry_count: int = 0
         self._max_retries: int = 5
-        self._retry_timer: QTimer | None = None
         self._backoff_ms: int = 50
-        self._ack_received = False
+        self._ack_received: bool = False
+        self._timeout_flag: bool = False
+        self._first_timeout_timer: threading.Timer | None = None
+        self._retry_timer: threading.Timer | None = None
 
-        self.ack_received.connect(self._on_ack)
-        self.nak_received.connect(self._on_nak)
+    # ---- 回调注册 ----
+
+    def on(self, kind: str, callback: Callable[[Any], None]) -> None:
+        """注册事件回调。
+
+        kind 取值：connected / disconnected / error / spectral / adc /
+        ack / nak / pump_done / stop_rpt / pump1_progress / pump2_progress
+        """
+        self._callbacks.setdefault(kind, []).append(callback)
+
+    def request_pump_done_once(self, callback: Callable[[int], None]) -> None:
+        """注册单次 pump_done 回调（触发后自动清除，替代 SingleShotConnection）。"""
+        self._pump_done_once = callback
+
+    # ---- 事件轮询（GUI 主线程调用）----
+
+    def poll(self) -> None:
+        """排空事件队列，在 GUI 主线程中周期性调用（如 root.after(50, poll)）。"""
+        # 检查首包超时标志（由 Timer 线程设置）
+        if self._timeout_flag:
+            self._timeout_flag = False
+            if not self._ack_received and self._pending_cmd is not None:
+                self._handle_nak()
+
+        # 排空事件队列
+        while True:
+            try:
+                event = self._event_queue.get_nowait()
+            except queue.Empty:
+                break
+            self._dispatch(event)
+
+    def _dispatch(self, event: _Event) -> None:
+        # 内部事件先处理
+        if event.kind == "ack":
+            self._on_ack()
+        elif event.kind == "nak":
+            self._handle_nak()
+
+        # 单次 pump_done 回调
+        if event.kind == "pump_done" and self._pump_done_once is not None:
+            cb = self._pump_done_once
+            self._pump_done_once = None
+            cb(event.data)
+
+        # 用户回调
+        for cb in self._callbacks.get(event.kind, []):
+            cb(event.data)
 
     # ---- 连接管理 ----
 
@@ -297,13 +392,13 @@ class ProtocolHandler(QObject):
     def is_open(self) -> bool:
         return self._reader.is_open
 
-    def connect(self) -> None:  # type: ignore[override]
+    def connect(self) -> None:
         if not self._port_name:
-            self.error_occurred.emit("未指定串口端口")
+            self._event_queue.put(_Event("error", "未指定串口端口"))
             return
         self._reader.open(self._port_name, self._baudrate)
 
-    def disconnect(self) -> None:  # type: ignore[override]
+    def disconnect(self) -> None:
         self._reader.close()
 
     def reconfigure(self, port: str, baudrate: int) -> None:
@@ -311,53 +406,6 @@ class ProtocolHandler(QObject):
             self.disconnect()
         self._port_name = port
         self._baudrate = baudrate
-
-    # ---- FIFO 读取 ----
-
-    def pop_spectral(self) -> list[list[int]]:
-        q = self._reader.spectral_queue
-        return [q.popleft() for _ in range(len(q))]
-
-    def pop_adc(self) -> list[int]:
-        q = self._reader.adc_queue
-        return [q.popleft() for _ in range(len(q))]
-
-    # ---- 内部：上行帧分发 ----
-
-    def _on_frame_ready(self, typ: int, payload: bytes) -> None:
-        if typ == 0x01 and len(payload) == 20:
-            vals = [payload[i] | (payload[i + 1] << 8) for i in range(0, 20, 2)]
-            self.spectral_data.emit(vals)
-        elif typ == 0x02 and len(payload) == 6:
-            val = payload[0] | (payload[1] << 8)
-            pos = (
-                payload[2] | (payload[3] << 8) | (payload[4] << 16) | (payload[5] << 24)
-            )
-            self.adc_data.emit(val, pos)
-        elif typ == 0x81:
-            self.ack_received.emit()
-        elif typ == 0xFF:
-            self.nak_received.emit()
-        elif typ == 0x82 and len(payload) == 4:
-            pos = (
-                payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24)
-            )
-            self.pump_done.emit(pos)
-        elif typ in (0x83, 0x84, 0x85) and len(payload) == 4:
-            pos = (
-                payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24)
-            )
-            self.stop_rpt.emit(pos)
-        elif typ == 0x86 and len(payload) == 4:
-            pos = (
-                payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24)
-            )
-            self.pump1_progress.emit(pos)
-        elif typ == 0x87 and len(payload) == 4:
-            pos = (
-                payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24)
-            )
-            self.pump2_progress.emit(pos)
 
     # ---- 命令发送（下行帧） ----
 
@@ -411,15 +459,10 @@ class ProtocolHandler(QObject):
         self._ack_received = True
         self._pending_cmd = None
         self._retry_count = 0
-        if self._retry_timer:
-            self._retry_timer.stop()
+        self._cancel_timers()
 
-    def _on_first_timeout(self) -> None:
-        """首包 100ms 超时：视同 NAK，触发退避重传。"""
-        if not self._ack_received and self._pending_cmd is not None:
-            self._on_nak()
-
-    def _on_nak(self) -> None:
+    def _handle_nak(self) -> None:
+        """NAK 处理：指数退避重传（在主线程 poll() 中调用）。"""
         if self._pending_cmd is None:
             return
         self._retry_count += 1
@@ -427,25 +470,31 @@ class ProtocolHandler(QObject):
             self._send_abort_and_error()
             return
         # 指数退避
-        delay = self._backoff_ms * (2 ** (self._retry_count - 1))
-        if self._retry_timer is None:
-            self._retry_timer = QTimer(self)
-            self._retry_timer.setSingleShot(True)
-        self._retry_timer.timeout.disconnect()
-        self._retry_timer.timeout.connect(self._retry_send)
-        self._retry_timer.start(delay)
+        delay = self._backoff_ms * (2 ** (self._retry_count - 1)) / 1000.0
+        self._cancel_timers()
+        self._retry_timer = threading.Timer(delay, self._retry_send)
+        self._retry_timer.daemon = True
+        self._retry_timer.start()
 
     def _retry_send(self) -> None:
+        """重传（Timer 线程调用，仅写串口，线程安全）。"""
         if self._pending_cmd:
             self._reader.write(self._pending_cmd)
 
     def _send_abort_and_error(self) -> None:
         self._pending_cmd = None
         self._retry_count = 0
-        if self._retry_timer:
-            self._retry_timer.stop()
+        self._cancel_timers()
         self.send_abort(0xFF)
-        self.error_occurred.emit("下位机通讯异常")
+        self._event_queue.put(_Event("error", "下位机通讯异常"))
+
+    def _cancel_timers(self) -> None:
+        if self._first_timeout_timer is not None:
+            self._first_timeout_timer.cancel()
+            self._first_timeout_timer = None
+        if self._retry_timer is not None:
+            self._retry_timer.cancel()
+            self._retry_timer = None
 
     def send_cmd(self, cmd: int, params: bytes = b"") -> None:
         """发送命令并启动 ACK/NAK 重试监控（含 100ms 首包超时）。"""
@@ -455,14 +504,21 @@ class ProtocolHandler(QObject):
         self._retry_count = 0
         self._reader.write(frame)
         # 启动首包超时定时器
-        if self._retry_timer is None:
-            self._retry_timer = QTimer(self)
-            self._retry_timer.setSingleShot(True)
-            self._retry_timer.timeout.connect(self._on_first_timeout)
-        self._retry_timer.start(100)
+        self._cancel_timers()
+        self._first_timeout_timer = threading.Timer(0.1, self._on_first_timeout)
+        self._first_timeout_timer.daemon = True
+        self._first_timeout_timer.start()
+
+    def _on_first_timeout(self) -> None:
+        """首包 100ms 超时（Timer 线程调用，仅设标志，由 poll() 处理）。"""
+        self._timeout_flag = True
 
     # ---- 生命周期 ----
 
     def shutdown(self) -> None:
+        self._cancel_timers()
         self._reader.close()
-        self._reader.wait(1000)
+        self._reader.join(timeout=2.0)
+
+
+__all__ = ["ProtocolHandler"]
