@@ -127,7 +127,7 @@ class ResultsPanel(ttk.Frame):
         row = ttk.Frame(parent)
         row.pack(fill="x", padx=8, pady=2)
         ttk.Label(row, text=label).pack(side="left")
-        widget.pack(side="right")
+        widget.pack(in_=row, side="right")
 
     def _spin_value(self, sb: ttk.Spinbox) -> float:
         try:

@@ -47,8 +47,6 @@ class _OperationPanel(ttk.LabelFrame):
             side="left", padx=(8, 0)
         )
 
-        ctrl.pack_propagate(False)
-
         btn_frame = ttk.Frame(inner)
         btn_frame.pack(fill="x", pady=(8, 0))
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 
 import numpy as np
+import ttkbootstrap as ttk
 from DataProcessor import PUMP_SLOPE
 from matplotlib.patches import Polygon
 
@@ -59,13 +60,14 @@ class PotentialWidget(_BlitPlot):
         self._ewma = _EWMA(0.15)
 
         # ── 顶部控制栏 ───────────────────────────────────────────────
-        top = tk.Frame(self)
+        self._canvas.get_tk_widget().pack_forget()
+        top = ttk.Frame(self)
         top.pack(fill="x", padx=8, pady=(4, 0))
 
-        tk.Label(top, text="平滑 α:").pack(side="left")
+        ttk.Label(top, text="平滑 α:").pack(side="left")
 
         self._alpha_var = tk.StringVar(value="0.15")
-        self._alpha_spin = tk.Spinbox(
+        self._alpha_spin = ttk.Spinbox(
             top,
             from_=0.01,
             to=1.0,
@@ -77,10 +79,11 @@ class PotentialWidget(_BlitPlot):
         )
         self._alpha_spin.pack(side="left", padx=(4, 8))
 
-        self._info_label = tk.Label(top, text="", foreground="#7f8c8d")
+        self._info_label = ttk.Label(top, text="", foreground="#7f8c8d")
         self._info_label.pack(side="left")
 
         # ── 绘图区 ───────────────────────────────────────────────────
+        self._canvas.get_tk_widget().pack(fill="both", expand=True)
         self._ax.set_xlabel("Time (s)")
         self._ax.set_ylabel("Potential (V)")
         self._ax.set_xlim(0, 60)

@@ -126,7 +126,7 @@ class MainWindow(ttk.Frame):
 
         # 串口
         ttk.Label(tb, text="端口:").pack(side="left", padx=(0, 4))
-        self._port_cb = ttk.Combobox(tb, state="readonly", width=30)
+        self._port_cb = ttk.Combobox(tb, state="readonly", width=26)
         self._port_cb.pack(side="left")
         self._port_data: dict[str, str] = {}  # 显示文本 → 设备路径
 
@@ -148,7 +148,7 @@ class MainWindow(ttk.Frame):
         self._conn_btn = ttk.Button(tb, text="连接", command=self._toggle_connect)
         self._conn_btn.pack(side="left", padx=8)
 
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=4)
 
         ttk.Label(tb, text="进样体积(mL):").pack(side="left", padx=(0, 4))
         self._vol_spin = ttk.Spinbox(
@@ -157,7 +157,7 @@ class MainWindow(ttk.Frame):
         self._vol_spin.set(5.0)
         self._vol_spin.pack(side="left")
 
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=4)
 
         self._start_btn = ttk.Button(
             tb, text="开始滴定", command=self._start_titration
@@ -180,7 +180,7 @@ class MainWindow(ttk.Frame):
         )
         self._reset_btn.pack(side="left", padx=4)
 
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=4)
 
         self._rec_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
@@ -190,7 +190,7 @@ class MainWindow(ttk.Frame):
             command=self._on_recording_toggled,
         ).pack(side="left")
 
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=4)
 
         ttk.Label(tb, text="主题:").pack(side="left", padx=(0, 4))
         self._theme_cb = ttk.Combobox(
@@ -211,7 +211,6 @@ class MainWindow(ttk.Frame):
 
         # ---- 滴定标签页 ----
         titrate_tab = ttk.Frame(self._main_tabs)
-        titrate_tab.pack(fill="both", expand=True)
 
         paned = tk.PanedWindow(
             titrate_tab, orient="horizontal", sashwidth=4
