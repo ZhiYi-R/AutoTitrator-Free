@@ -14,4 +14,3 @@
 from Communication.protocol import ProtocolHandler
 
 __all__ = ["ProtocolHandler"]
-

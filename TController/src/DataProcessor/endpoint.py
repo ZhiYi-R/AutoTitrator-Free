@@ -46,8 +46,10 @@ def savgol_filter(signal: np.ndarray, window: int = 5, order: int = 2) -> np.nda
 #  因果指数移动平均
 # ======================================================================
 
+
 class _EWMA:
     """一阶指数移动平均（因果，O(1) 每步）。"""
+
     __slots__ = ("_a", "_v")
 
     def __init__(self, alpha: float) -> None:
@@ -69,11 +71,11 @@ class _EWMA:
         self._v = None
 
 
-
 # ======================================================================
 #  Automatic Multi-scale Peak Detection (Scholkmann 2012)
 #  对取反后的信号找峰 → 原信号的谷底
 # ======================================================================
+
 
 def _ampd_peak_idx(signal: np.ndarray) -> int | None:
     """返回 AMPD 定位的最显著峰值索引（无峰时返回 None）。"""
@@ -105,6 +107,7 @@ def _ampd_peak_idx(signal: np.ndarray) -> int | None:
 #  EndpointDetector 主类（在线流式版）
 # ======================================================================
 
+
 class EndpointDetector:
     """滴定终点在线检测（因果滤波 + 状态机）。
 
@@ -119,11 +122,11 @@ class EndpointDetector:
     # 电位通道参数（自适应阈值）
     POT_V_ALPHA = 0.15
     POT_D_ALPHA = 0.05
-    POT_OBSERVE_VOL = 0.1     # mL: 观察窗口，用于学习噪声基底
-    POT_ENTER_SIGMA = 6.0     # dv/dt 低于噪声均值 6σ 时进入 TRACKING
-    POT_EXIT_SIGMA = 2.5      # dv/dt 恢复至 2.5σ 以内时确认终点
-    POT_MIN_ENTER = 0.005      # V/s: ENTER 阈值安全下限
-    POT_MIN_EXIT = 0.001       # V/s: EXIT 阈值安全下限
+    POT_OBSERVE_VOL = 0.1  # mL: 观察窗口，用于学习噪声基底
+    POT_ENTER_SIGMA = 6.0  # dv/dt 低于噪声均值 6σ 时进入 TRACKING
+    POT_EXIT_SIGMA = 2.5  # dv/dt 恢复至 2.5σ 以内时确认终点
+    POT_MIN_ENTER = 0.005  # V/s: ENTER 阈值安全下限
+    POT_MIN_EXIT = 0.001  # V/s: EXIT 阈值安全下限
     POT_CONFIRM_VOL = 0.15
 
     # 光谱通道参数
@@ -135,6 +138,7 @@ class EndpointDetector:
     def __init__(self, flow_rate: float | None = None) -> None:
         if flow_rate is None:
             from DataProcessor.calibration import FLOW_RATE
+
             self._flow_rate = FLOW_RATE
         else:
             self._flow_rate = flow_rate
@@ -228,8 +232,10 @@ class EndpointDetector:
                 if d_sm < self._pot_min_d:
                     self._pot_min_d = d_sm
                     self._pot_cand_vol = vol
-                if (d_sm > self._pot_exit_th
-                        and (vol - self._pot_entry_vol) > self.POT_CONFIRM_VOL):
+                if (
+                    d_sm > self._pot_exit_th
+                    and (vol - self._pot_entry_vol) > self.POT_CONFIRM_VOL
+                ):
                     self._pot_ep_vol = self._pot_cand_vol
                     self._pot_ep_t = self._pot_cand_vol / self._flow_rate
                     self._pot_state = "END_CONFIRMED"
@@ -297,31 +303,39 @@ class EndpointDetector:
                 return {
                     "volume": round(v, 3),
                     "time": round((pot["time"] + spec["time"]) / 2.0, 3),
-                    "confidence": "high", "method": "consensus",
-                    "potential": pot, "spectral": spec,
+                    "confidence": "high",
+                    "method": "consensus",
+                    "potential": pot,
+                    "spectral": spec,
                 }
             return {
                 "volume": round(pot["volume"], 3),
                 "time": round(pot["time"], 3),
-                "confidence": "low", "method": "conflict",
-                "potential": pot, "spectral": spec,
+                "confidence": "low",
+                "method": "conflict",
+                "potential": pot,
+                "spectral": spec,
                 "warning": f"电位{pot['volume']:.3f}mL vs "
-                           f"光谱{spec['volume']:.3f}mL 差异过大",
+                f"光谱{spec['volume']:.3f}mL 差异过大",
             }
 
         if pot is not None:
             return {
                 "volume": round(pot["volume"], 3),
                 "time": round(pot["time"], 3),
-                "confidence": "medium", "method": "potential_only",
-                "potential": pot, "spectral": None,
+                "confidence": "medium",
+                "method": "potential_only",
+                "potential": pot,
+                "spectral": None,
             }
         if spec is not None:
             return {
                 "volume": round(spec["volume"], 3),
                 "time": round(spec["time"], 3),
-                "confidence": "medium", "method": "spectral_only",
-                "potential": None, "spectral": spec,
+                "confidence": "medium",
+                "method": "spectral_only",
+                "potential": None,
+                "spectral": spec,
             }
         return None
 

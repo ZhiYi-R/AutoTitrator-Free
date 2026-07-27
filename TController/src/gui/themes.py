@@ -2,6 +2,7 @@
 主题管理模块 — 深色/浅色/跟随系统。
 用 QPalette 控制全局配色（保留 Fusion 风格），pyqtgraph API 更新图表。
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 @dataclass
 class PlotColors:
     """pyqtgraph 图表配色。"""
+
     background: str = "#FFFFFF"
     foreground: str = "#000000"
 
@@ -34,6 +36,7 @@ class Theme:
 
 
 # ── 调色板 ──────────────────────────────────────────────────
+
 
 def _make_palette(dark: bool) -> QPalette:
     p = QPalette()
@@ -71,19 +74,29 @@ def _make_palette(dark: bool) -> QPalette:
 # ── 主题定义 ─────────────────────────────────────────────────
 
 _LIGHT_PLOT = PlotColors(
-    background="#FFFFFF", foreground="#000000",
-    curve="#2980b9", curve_fill="rgba(41,128,185,50)",
-    curve_potential="#27ae60", curve_potential_fill="rgba(39,174,96,40)",
+    background="#FFFFFF",
+    foreground="#000000",
+    curve="#2980b9",
+    curve_fill="rgba(41,128,185,50)",
+    curve_potential="#27ae60",
+    curve_potential_fill="rgba(39,174,96,40)",
     endpoint_line="#e74c3c",
-    scatter="#2980b9", scatter_ph="#8e44ad", fit_line="#e74c3c",
+    scatter="#2980b9",
+    scatter_ph="#8e44ad",
+    fit_line="#e74c3c",
 )
 
 _DARK_PLOT = PlotColors(
-    background="#1e1e1e", foreground="#d4d4d4",
-    curve="#4da6ff", curve_fill="rgba(77,166,255,50)",
-    curve_potential="#2ecc71", curve_potential_fill="rgba(46,204,113,40)",
+    background="#1e1e1e",
+    foreground="#d4d4d4",
+    curve="#4da6ff",
+    curve_fill="rgba(77,166,255,50)",
+    curve_potential="#2ecc71",
+    curve_potential_fill="rgba(46,204,113,40)",
     endpoint_line="#e74c3c",
-    scatter="#4da6ff", scatter_ph="#bb8cf2", fit_line="#e74c3c",
+    scatter="#4da6ff",
+    scatter_ph="#bb8cf2",
+    fit_line="#e74c3c",
 )
 
 THEMES: dict[str, Theme] = {
@@ -96,6 +109,7 @@ MODE_NAMES = {"light": "浅色", "dark": "深色", "system": "跟随系统"}
 
 # ── 系统检测 ─────────────────────────────────────────────────
 
+
 def _system_is_dark() -> bool:
     app = QApplication.instance()
     if app is None:
@@ -107,9 +121,13 @@ def _system_is_dark() -> bool:
 
 # ── 应用主题 ─────────────────────────────────────────────────
 
+
 def resolve_theme(mode: str) -> tuple[str, Theme]:
-    key = "dark" if mode == "system" and _system_is_dark() else (
-        mode if mode in THEMES else "light")
+    key = (
+        "dark"
+        if mode == "system" and _system_is_dark()
+        else (mode if mode in THEMES else "light")
+    )
     return key, THEMES.get(key, THEMES["light"])
 
 

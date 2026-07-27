@@ -34,6 +34,7 @@ def _load() -> None:
     except Exception:
         pass
 
+
 _load()
 
 FLOW_RATE = PUMP_SLOPE * PUMP_STEP_FREQ

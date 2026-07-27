@@ -31,8 +31,11 @@ def _load() -> dict:
     if not os.path.isfile(_DATA_PATH):
         raise FileNotFoundError(f"光谱校准数据未找到: {_DATA_PATH}")
     data = np.load(_DATA_PATH, allow_pickle=True)
-    _lazy = {k.replace("spectral_", ""): v for k, v in data.items()
-             if k.startswith("spectral_")}
+    _lazy = {
+        k.replace("spectral_", ""): v
+        for k, v in data.items()
+        if k.startswith("spectral_")
+    }
     return _lazy
 
 
@@ -78,6 +81,8 @@ def reconstruct(
     fac = cal["factors"] if factors is None else np.asarray(factors, dtype=np.float64)
 
     corrected = fac * np.maximum(raw - ofs, 0.0)
-    spectrum = np.maximum(cal["matrix"] @ corrected, 0.0)  # (721, 10) @ (10,) 2192 (721,)
+    spectrum = np.maximum(
+        cal["matrix"] @ corrected, 0.0
+    )  # (721, 10) @ (10,) 2192 (721,)
 
     return cal["wavelengths"].copy(), spectrum

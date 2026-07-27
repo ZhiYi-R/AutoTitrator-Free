@@ -150,8 +150,9 @@ class ResultsPanel(QWidget):
         self._electrode_combo.clear()
         self._electrode_combo.addItem("Raw Potential (V)", None)
         for name, slope, intercept, unit in electrode_list:
-            self._electrode_combo.addItem(f"{name} ({unit})",
-                                          (name, slope, intercept, unit))
+            self._electrode_combo.addItem(
+                f"{name} ({unit})", (name, slope, intercept, unit)
+            )
         self._electrode_combo.blockSignals(False)
 
     def _on_combo_changed(self, idx: int) -> None:
@@ -185,6 +186,7 @@ class ResultsPanel(QWidget):
         self._inject_bar.setFormat(f"0.000 / {target_vol:.3f} mL")
         self._eta_label.setText("")
         self._inject_group.setVisible(True)
+
     def update_inject_progress(self, pos: int, volume: float = 0.0) -> None:
         if self._inject_target <= 0:
             return

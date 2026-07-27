@@ -34,6 +34,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 #  工具：线性回归
 # ======================================================================
 
+
 def _linreg(x: np.ndarray, y: np.ndarray) -> tuple[float, float, float]:
     """(slope, intercept, r²) — 普通线性回归。"""
     n = len(x)
@@ -63,11 +64,13 @@ def _linreg_origin(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
 #  泵校准面板
 # ======================================================================
 
+
 class PumpCalibWidget(QWidget):
     """单泵校准面板：点动 10000 脉冲 → 输入质量 → 记录 → 拟合。"""
 
-    def __init__(self, pump_id: int, com: ProtocolHandler,
-                 parent: QWidget | None = None) -> None:
+    def __init__(
+        self, pump_id: int, com: ProtocolHandler, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._pump_id = pump_id
         self._com = com
@@ -154,7 +157,9 @@ class PumpCalibWidget(QWidget):
             return
         self._jog_btn.setEnabled(False)
         self._status_label.setText("泵运行中…")
-        self._com.pump_done.connect(self._on_jog_done, Qt.ConnectionType.SingleShotConnection)
+        self._com.pump_done.connect(
+            self._on_jog_done, Qt.ConnectionType.SingleShotConnection
+        )
         self._com.send_maxcount(self._pump_id, 10000)
         # 超时保护
         QTimer.singleShot(5000, lambda: self._jog_btn.setEnabled(True))
@@ -174,7 +179,9 @@ class PumpCalibWidget(QWidget):
         self._update_table()
         self._update_plot()
         self._vol_input.setValue(0)
-        self._status_label.setText(f"记录 ({len(self._points)}): {total_pulses} 脉冲 → {vol:.6f} mL")
+        self._status_label.setText(
+            f"记录 ({len(self._points)}): {total_pulses} 脉冲 → {vol:.6f} mL"
+        )
 
     def _undo(self) -> None:
         if self._points:
@@ -215,8 +222,8 @@ class PumpCalibWidget(QWidget):
         self._fit_line.setData(x=x_fit, y=y_fit)
 
         self._result_label.setText(
-            f"V = {slope:.10f} × 脉冲  "
-            f"(R² = {r2:.6f})  |  点数: {len(self._points)}")
+            f"V = {slope:.10f} × 脉冲  (R² = {r2:.6f})  |  点数: {len(self._points)}"
+        )
 
     # ---- 保存 / 加载 ----
 
@@ -275,11 +282,11 @@ class PumpCalibWidget(QWidget):
 #  电极校准面板
 # ======================================================================
 
+
 class PHCalibWidget(QWidget):
     """电极校准：支持多个电极配置，可命名、设单位(pX)和备注。"""
 
-    def __init__(self, com: ProtocolHandler,
-                 parent: QWidget | None = None) -> None:
+    def __init__(self, com: ProtocolHandler, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._com = com
         self._current_mv: float = 0.0
@@ -325,7 +332,9 @@ class PHCalibWidget(QWidget):
         live_row = QHBoxLayout()
         live_row.addWidget(QLabel("当前电位:"))
         self._live_label = QLabel("--.-- mV")
-        self._live_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2980b9;")
+        self._live_label.setStyleSheet(
+            "font-weight: bold; font-size: 14px; color: #2980b9;"
+        )
         live_row.addWidget(self._live_label)
         live_row.addStretch()
         self.layout().addLayout(live_row)
@@ -365,7 +374,9 @@ class PHCalibWidget(QWidget):
         self._plot.setLabel("bottom", "Potential", "mV")
         self._plot.setLabel("left", "pX", "")
         self._plot.showGrid(x=True, y=True, alpha=0.3)
-        self._scatter = pg.ScatterPlotItem(pxMode=True, brush=QColor("#8e44ad"), size=10)
+        self._scatter = pg.ScatterPlotItem(
+            pxMode=True, brush=QColor("#8e44ad"), size=10
+        )
         self._plot.addItem(self._scatter)
         self._fit_line = pg.PlotDataItem(pen=pg.mkPen(QColor("#e74c3c"), width=2))
         self._plot.addItem(self._fit_line)
@@ -404,8 +415,10 @@ class PHCalibWidget(QWidget):
                 name = str(names[i])
                 pts_vals = data[f"points_vals_{i}"]
                 pts_mvs = data[f"points_mvs_{i}"]
-                points = [(float(pts_vals[j]), float(pts_mvs[j]))
-                          for j in range(len(pts_vals))]
+                points = [
+                    (float(pts_vals[j]), float(pts_mvs[j]))
+                    for j in range(len(pts_vals))
+                ]
                 result["electrodes"][name] = {
                     "unit": str(data[f"unit_{i}"]),
                     "notes": str(data[f"notes_{i}"]),
@@ -426,7 +439,17 @@ class PHCalibWidget(QWidget):
             try:
                 _old = np.load(path, allow_pickle=True)
                 for _k in _old:
-                    if not _k.startswith("n_electrodes") and not _k.startswith("names")                        and not _k.startswith("current") and not _k.startswith("points_")                        and not _k.startswith("slope_") and not _k.startswith("intercept_")                        and not _k.startswith("r2_") and not _k.startswith("unit_")                        and not _k.startswith("notes_") :
+                    if (
+                        not _k.startswith("n_electrodes")
+                        and not _k.startswith("names")
+                        and not _k.startswith("current")
+                        and not _k.startswith("points_")
+                        and not _k.startswith("slope_")
+                        and not _k.startswith("intercept_")
+                        and not _k.startswith("r2_")
+                        and not _k.startswith("unit_")
+                        and not _k.startswith("notes_")
+                    ):
                         _merge[_k] = _old[_k]
             except Exception:
                 pass
@@ -496,10 +519,14 @@ class PHCalibWidget(QWidget):
             return
         name = name.strip()
         if name in self._data["electrodes"]:
-            name = f"{name} ({len(self._data['electrodes'])+1})"
+            name = f"{name} ({len(self._data['electrodes']) + 1})"
         self._data["electrodes"][name] = {
-            "unit": "pX", "notes": "", "points": [],
-            "slope": 0.0, "intercept": 0.0, "r2": 0.0,
+            "unit": "pX",
+            "notes": "",
+            "points": [],
+            "slope": 0.0,
+            "intercept": 0.0,
+            "r2": 0.0,
         }
         self._data["current"] = name
         self._rebuild_combo()
@@ -573,8 +600,8 @@ class PHCalibWidget(QWidget):
             return
         slope, intercept, r2 = _linreg(mvs, vals)
         self._result_label.setText(
-            f"{unit} = {intercept:.4f} + ({slope:.6f}) × E(mV)  "
-            f"(R² = {r2:.6f})")
+            f"{unit} = {intercept:.4f} + ({slope:.6f}) × E(mV)  (R² = {r2:.6f})"
+        )
         margin = max(20, (mvs.max() - mvs.min()) * 0.2)
         x_fit = np.linspace(mvs.min() - margin, mvs.max() + margin, 200)
         y_fit = slope * x_fit + intercept
@@ -605,7 +632,10 @@ class PHCalibWidget(QWidget):
         self._dirty = False
         self._result_label.setText(
             f"已保存 — {name}: {self._unit_input.text()} = {intercept:.4f} + "
-            f"({slope:.6f}) × E  (R² = {r2:.6f})")
+            f"({slope:.6f}) × E  (R² = {r2:.6f})"
+        )
+
+
 class SpectralMatrixWidget(QWidget):
     """光谱重建矩阵热力图 (721 波长 × 10 通道)。"""
 
@@ -616,6 +646,7 @@ class SpectralMatrixWidget(QWidget):
 
         import numpy as np
         from DataProcessor.reconstructor import is_available
+
         if not is_available():
             self.layout().addWidget(QLabel("校准数据未加载"))
             return
@@ -625,19 +656,35 @@ class SpectralMatrixWidget(QWidget):
         _d = np.load(_p, allow_pickle=True)
         matrix = _d["spectral_matrix"]  # (721, 10)
         wls = _d["spectral_wavelengths"]  # (721,)
-        ch_names = ["F1(415)", "F2(445)", "F3(480)", "F4(515)",
-                     "F5(555)", "F6(590)", "F7(630)", "F8(680)", "Clear", "NIR(910)"]
+        ch_names = [
+            "F1(415)",
+            "F2(445)",
+            "F3(480)",
+            "F4(515)",
+            "F5(555)",
+            "F6(590)",
+            "F7(630)",
+            "F8(680)",
+            "Clear",
+            "NIR(910)",
+        ]
 
         # ---- 热力图 ----
         self._plot = pg.PlotWidget(title="光谱重建矩阵 (721λ × 10ch)")
         self._plot.setLabel("bottom", "Channel", "")
         self._plot.setLabel("left", "Wavelength", "nm")
-        self._plot.getAxis("bottom").setTicks([[(i, n) for i, n in enumerate(ch_names)]])
+        self._plot.getAxis("bottom").setTicks(
+            [[(i, n) for i, n in enumerate(ch_names)]]
+        )
         self._plot.getAxis("bottom").setTickSpacing(1, 1)
 
         # ImageItem: transpose to (10, 721) so rows=channels, cols=wavelengths
         img = pg.ImageItem(matrix.T, axisOrder="row-major")
-        img.setRect(pg.QtCore.QRectF(-0.5, float(wls[0]) - 0.5, 10, float(wls[-1]) - float(wls[0]) + 1))
+        img.setRect(
+            pg.QtCore.QRectF(
+                -0.5, float(wls[0]) - 0.5, 10, float(wls[-1]) - float(wls[0]) + 1
+            )
+        )
         # Set colormap: rdylbu-like
         cmap = pg.colormap.get("viridis")
         img.setColorMap(cmap)
@@ -657,7 +704,8 @@ class SpectralMatrixWidget(QWidget):
         info = QLabel(
             "每列对应一个 AS7341 通道 (F1–F8, Clear, NIR)，每行对应一个波长 (380–1100 nm)。\n"
             f"矩阵尺寸: {matrix.shape[0]}λ × {matrix.shape[1]}ch, "
-            f"值范围: [{matrix.min():.4f}, {matrix.max():.4f}]")
+            f"值范围: [{matrix.min():.4f}, {matrix.max():.4f}]"
+        )
         info.setWordWrap(True)
         self.layout().addWidget(info)
 

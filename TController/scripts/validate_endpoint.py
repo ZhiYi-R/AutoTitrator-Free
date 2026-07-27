@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """TController 滴定终点检测算法验证（高效版）。"""
+
 from __future__ import annotations
 
 import sys
@@ -43,13 +44,17 @@ pot_val = np.array([r[1] for r in rows_p], dtype=np.float64)
 spec_vol = np.array([r[0] for r in rows_s], dtype=np.float64)
 spec_8 = np.array([list(r[1:9]) for r in rows_s], dtype=np.float64)
 
+
 def group_mean(vol, vals):
     u, inv, cnt = np.unique(np.round(vol, 6), return_inverse=True, return_counts=True)
     if vals.ndim == 1:
         m = np.bincount(inv, weights=vals) / cnt
     else:
-        m = np.column_stack([np.bincount(inv, weights=vals[:, c]) / cnt for c in range(vals.shape[1])])
+        m = np.column_stack(
+            [np.bincount(inv, weights=vals[:, c]) / cnt for c in range(vals.shape[1])]
+        )
     return u, m
+
 
 uvol_p, mpot = group_mean(pot_vol, pot_val)
 uvol_s, mspec = group_mean(spec_vol, spec_8)
@@ -57,15 +62,23 @@ print(f"  电位: {len(uvol_p)} 步 ({uvol_p[0]:.4f}–{uvol_p[-1]:.4f} mL)")
 print(f"  光谱: {len(uvol_s)} 步")
 
 print("[2] 对齐 & 重建光谱…")
-mspec_interp = np.column_stack([np.interp(uvol_p, uvol_s, mspec[:, c]) for c in range(8)])
+mspec_interp = np.column_stack(
+    [np.interp(uvol_p, uvol_s, mspec[:, c]) for c in range(8)]
+)
 
 calib = np.load(str(PROJ / "data" / "calibre.npz"), allow_pickle=True)
-mat, ofs, fac = calib["spectral_matrix"], calib["spectral_offsets"], calib["spectral_factors"]
+mat, ofs, fac = (
+    calib["spectral_matrix"],
+    calib["spectral_offsets"],
+    calib["spectral_factors"],
+)
 full = np.zeros((len(mspec_interp), 10), dtype=np.float64)
 full[:, :8] = mspec_interp
 corrected = fac * np.maximum(full - ofs, 0.0)
 spectra_721 = corrected @ mat.T
-print(f"  全光谱: {spectra_721.shape} ({np.sum(spectra_721<0)}/{spectra_721.size} 负值)")
+print(
+    f"  全光谱: {spectra_721.shape} ({np.sum(spectra_721 < 0)}/{spectra_721.size} 负值)"
+)
 
 t = uvol_p / FLOW_RATE
 N = len(uvol_p)
@@ -80,7 +93,8 @@ from DataProcessor.endpoint import savgol_filter
 
 def ampd_limited(signal, max_scale=200):
     Ns = len(signal)
-    if Ns < 4: return np.array([], dtype=int)
+    if Ns < 4:
+        return np.array([], dtype=int)
     L = min(max_scale, Ns // 2)
     LMS = np.ones((L - 1, Ns), dtype=np.int32)
     for k in range(2, L + 1):
@@ -95,6 +109,7 @@ def ampd_limited(signal, max_scale=200):
     best_k = int(np.argmin(row_sums[:search])) + 2
     peaks = np.where(LMS[best_k - 2] == 0)[0]
     return peaks
+
 
 dv = np.diff(mpot)
 dt = np.diff(t)
@@ -127,6 +142,7 @@ def cross_entropy(arr):
     q /= q.sum(axis=1, keepdims=True) + 1e-12
     return -np.sum(p * np.log(np.maximum(q, 1e-12)), axis=1)
 
+
 ce_8 = cross_entropy(mspec_interp)
 ce_721 = cross_entropy(spectra_721)
 
@@ -152,9 +168,14 @@ ep_mod._ampd = lambda s, mx=None: ampd_limited(s, mx or 200)
 
 from DataProcessor.endpoint import EndpointDetector
 
-det = EndpointDetector(flow_rate=FLOW_RATE, potential_window=300.0,
-                       spectral_window=300.0, max_potential_points=6000,
-                       max_spectral_frames=500, consensus_threshold=1.0)
+det = EndpointDetector(
+    flow_rate=FLOW_RATE,
+    potential_window=300.0,
+    spectral_window=300.0,
+    max_potential_points=6000,
+    max_spectral_frames=500,
+    consensus_threshold=1.0,
+)
 
 stride = 5
 for i in range(0, N, stride):
@@ -185,8 +206,15 @@ ax.legend(loc="upper right")
 ax = axes[1]
 ax.plot(vol_mid, deriv_sm, "g-", lw=1, label="dV/dt (savgol w=15)")
 if len(peaks_ampd):
-    ax.scatter(vol_mid[peaks_ampd], deriv_sm[peaks_ampd], c="red", s=20, zorder=5,
-               label=f"AMPD 峰 ({len(peaks_ampd)})", alpha=0.6)
+    ax.scatter(
+        vol_mid[peaks_ampd],
+        deriv_sm[peaks_ampd],
+        c="red",
+        s=20,
+        zorder=5,
+        label=f"AMPD 峰 ({len(peaks_ampd)})",
+        alpha=0.6,
+    )
     for idx in top3:
         ax.axvline(vol_mid[peaks_ampd[idx]], color="red", ls="--", lw=1, alpha=0.4)
 ax.axhline(0, color="gray", lw=0.5)
@@ -200,8 +228,15 @@ ce_label = "8ch 交叉熵 (savgol w=15)"
 ax.plot(vol_mid, savgol_filter(ce_8, window=15, order=2), "m-", lw=1, label=ce_label)
 lm_ce8 = _local_maxima(savgol_filter(ce_8, window=15, order=2))
 if len(lm_ce8):
-    ax.scatter(vol_mid[lm_ce8], savgol_filter(ce_8, window=15, order=2)[lm_ce8],
-               c="red", s=20, zorder=5, label=f"局部极大值 ({len(lm_ce8)})", alpha=0.6)
+    ax.scatter(
+        vol_mid[lm_ce8],
+        savgol_filter(ce_8, window=15, order=2)[lm_ce8],
+        c="red",
+        s=20,
+        zorder=5,
+        label=f"局部极大值 ({len(lm_ce8)})",
+        alpha=0.6,
+    )
 ax.set_ylabel("交叉熵")
 ax.set_title("(c) 光谱 8通道交叉熵")
 ax.set_xlabel("体积 (mL)")
@@ -223,8 +258,16 @@ lines.append("AMPD max_scale=200")
 lines.append(f"数据 {N}步 | 流速 {FLOW_RATE:.6f}")
 
 bbox = {"boxstyle": "round,pad=0.5", "fc": "lightyellow", "alpha": 0.9}
-fig.text(0.70, 0.92, "\n".join(lines), fontfamily="monospace", fontsize=9,
-         va="top", bbox=bbox, transform=fig.transFigure)
+fig.text(
+    0.70,
+    0.92,
+    "\n".join(lines),
+    fontfamily="monospace",
+    fontsize=9,
+    va="top",
+    bbox=bbox,
+    transform=fig.transFigure,
+)
 
 plt.tight_layout(rect=[0, 0, 1, 0.92])
 out = OUT_DIR / "validation.png"
@@ -239,7 +282,8 @@ if result:
     icons = {"high": "✅", "medium": "⚠️", "low": "❌"}
     print(f"  {icons.get(result['confidence'], '❓')} 终点: {result['volume']:.4f} mL")
     print(f"    置信度: {result['confidence']}  |  方法: {result['method']}")
-    if result.get("warning"): print(f"    警告: {result['warning']}")
+    if result.get("warning"):
+        print(f"    警告: {result['warning']}")
     if result.get("potential"):
         p = result["potential"]
         print(f"    电位: {p['volume']:.4f} mL ({p['peak_count']} peaks)")

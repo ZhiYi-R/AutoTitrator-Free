@@ -21,18 +21,23 @@ ELECTRODE_OFFSET = 1.1
 
 class _EWMA:
     """因果指数移动平均。"""
+
     __slots__ = ("_a", "_v")
+
     def __init__(self, alpha: float = 0.15) -> None:
         self._a = alpha
         self._v: float | None = None
+
     def __call__(self, x: float) -> float:
         if self._v is None:
             self._v = float(x)
         else:
             self._v = self._a * float(x) + (1.0 - self._a) * self._v
         return self._v
+
     def reset(self) -> None:
         self._v = None
+
     @property
     def value(self) -> float | None:
         return self._v
@@ -45,8 +50,8 @@ class PotentialWidget(QWidget):
         super().__init__(parent)
         self._titrating = False
         self._times: list[float] = []
-        self._volts_raw: list[float] = []   # 原始值
-        self._volts_sm: list[float] = []    # EWMA 平滑值
+        self._volts_raw: list[float] = []  # 原始值
+        self._volts_sm: list[float] = []  # EWMA 平滑值
         self._volumes: list[float] = []
         self._endpoint_volume: float | None = None
         self._cal_unit: str | None = None
@@ -93,7 +98,9 @@ class PotentialWidget(QWidget):
 
         # 平滑后（主曲线）
         self._sm_curve = pg.PlotDataItem(
-            x=[], y=[], name="Filtered",
+            x=[],
+            y=[],
+            name="Filtered",
             pen=pg.mkPen(QColor("#27ae60"), width=1.5),
             fillLevel=0,
             brush=QColor(39, 174, 96, 40),
@@ -188,7 +195,10 @@ class PotentialWidget(QWidget):
 
         # 平滑值
         if self._cal_slope is not None:
-            y_sm = [self._cal_intercept + self._cal_slope * v * 1000.0 for v in self._volts_sm]
+            y_sm = [
+                self._cal_intercept + self._cal_slope * v * 1000.0
+                for v in self._volts_sm
+            ]
         else:
             y_sm = self._volts_sm
         self._sm_curve.setData(x=x_vals, y=y_sm)

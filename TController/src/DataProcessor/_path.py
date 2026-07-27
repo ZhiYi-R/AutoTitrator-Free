@@ -6,6 +6,7 @@
 
 采用文件系统探测，不依赖 sys.frozen 等 packager 特定属性。
 """
+
 from __future__ import annotations
 
 import os

@@ -23,11 +23,17 @@ from PySide6.QtWidgets import (
 
 class _OperationPanel(QGroupBox):
     """单个维护操作面板：泵复选框 + 启停 + 说明。"""
+
     # 泵编号 → 显示名称
     PUMP_NAMES: Final[dict[int, str]] = {1: "进样泵", 2: "滴定泵"}
 
-    def __init__(self, title: str, instructions: str, com: ProtocolHandler,
-                 parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        title: str,
+        instructions: str,
+        com: ProtocolHandler,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(title, parent)
         self._com = com
 
@@ -88,8 +94,10 @@ class _OperationPanel(QGroupBox):
 
     def _start(self) -> None:
         pumps = []
-        if self._cb1.isChecked(): pumps.append(1)
-        if self._cb2.isChecked(): pumps.append(2)
+        if self._cb1.isChecked():
+            pumps.append(1)
+        if self._cb2.isChecked():
+            pumps.append(2)
         if not pumps:
             return
         for p in pumps:
@@ -120,8 +128,7 @@ class _OperationPanel(QGroupBox):
 class MaintenanceTab(QWidget):
     """维护标签页。"""
 
-    def __init__(self, com: ProtocolHandler,
-                 parent: QWidget | None = None) -> None:
+    def __init__(self, com: ProtocolHandler, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._com = com
 
@@ -188,4 +195,3 @@ class MaintenanceTab(QWidget):
 
 
 __all__ = ["MaintenanceTab"]
-

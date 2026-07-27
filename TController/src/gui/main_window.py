@@ -50,6 +50,7 @@ class TitrationState(Enum):
 
 # ======================================================================
 
+
 class MainWindow(QMainWindow):
     """滴定控制主窗口。
 
@@ -82,18 +83,20 @@ class MainWindow(QMainWindow):
         self._detector = EndpointDetector()
         self._state = TitrationState.IDLE
         self._endpoint_volume: float | None = None
-        self._t0: float = 0.0       # 连接时刻
+        self._t0: float = 0.0  # 连接时刻
         self._recon_wls: np.ndarray | None = None
         self._adc_buffer: list[int] = []
         self._adc_counter = 0
 
         # ---- 数据记录 ----
         self._recording = False
-        self._rec_spectral: list[tuple[float, list[int]]] = []      # (t, [F1..NIR])
-        self._rec_recon: list[tuple[float, np.ndarray]] = []        # (t, full_spec)
+        self._rec_spectral: list[tuple[float, list[int]]] = []  # (t, [F1..NIR])
+        self._rec_recon: list[tuple[float, np.ndarray]] = []  # (t, full_spec)
         self._rec_recon_wls: np.ndarray | None = None
-        self._rec_potential: list[tuple[float, float, float, float]] = []  # (t, raw_v, smooth_v, vol_mL)
-        self._rec_raw_adc: list[tuple[float, int, float]] = []       # (t, raw_adc, vol_mL)
+        self._rec_potential: list[
+            tuple[float, float, float, float]
+        ] = []  # (t, raw_v, smooth_v, vol_mL)
+        self._rec_raw_adc: list[tuple[float, int, float]] = []  # (t, raw_adc, vol_mL)
         self._rec_ewma_v: float | None = None
 
         # ---- UI ----
@@ -224,8 +227,6 @@ class MainWindow(QMainWindow):
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         tb.addWidget(self._theme_combo)
 
-
-
     def _build_central(self) -> None:
         self._main_tabs = QTabWidget()
         self._main_tabs.setTabPosition(QTabWidget.TabPosition.North)
@@ -278,6 +279,7 @@ class MainWindow(QMainWindow):
 
     def _scan_ports(self) -> None:
         import serial.tools.list_ports
+
         current_dev = self._port_cb.currentData()
         self._port_cb.blockSignals(True)
         self._port_cb.clear()
@@ -289,8 +291,7 @@ class MainWindow(QMainWindow):
                 self._port_cb.addItem(label, p.device)
 
         self._more_menu.clear()
-        bare = [p.device for p in serial.tools.list_ports.comports()
-                if p.vid is None]
+        bare = [p.device for p in serial.tools.list_ports.comports() if p.vid is None]
         self._more_btn.setVisible(bool(bare))
         for dev in bare:
             act = self._more_menu.addAction(dev)
@@ -379,9 +380,14 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         # 仅在滴定期间馈入检测器
-        if self._state in (TitrationState.TITRATING, TitrationState.TITRATING_2,
-                           TitrationState.DEGREE_1):
-            self._detector.feed_spectrum(self._pump2_volume, np.array(vals, dtype=np.float64))
+        if self._state in (
+            TitrationState.TITRATING,
+            TitrationState.TITRATING_2,
+            TitrationState.DEGREE_1,
+        ):
+            self._detector.feed_spectrum(
+                self._pump2_volume, np.array(vals, dtype=np.float64)
+            )
 
     def _on_adc_data(self, raw: int, pump2_pos: int) -> None:
         t = time.monotonic() - self._t0
@@ -390,8 +396,11 @@ class MainWindow(QMainWindow):
         old_vol = self._pump2_volume
         self._pump2_volume = PUMP_SLOPE * pump2_pos
         # 调试：泵体积变化时更新 info
-        if self._state in (TitrationState.TITRATING, TitrationState.TITRATING_2,
-                           TitrationState.DEGREE_1):
+        if self._state in (
+            TitrationState.TITRATING,
+            TitrationState.TITRATING_2,
+            TitrationState.DEGREE_1,
+        ):
             diff = self._pump2_volume - old_vol
             if diff > 0.001:
                 self._info_label.setText(
@@ -404,8 +413,11 @@ class MainWindow(QMainWindow):
         if self._recording:
             self._rec_raw_adc.append((t, raw, self._pump2_volume))
         # 每次均馈入检测器（保持检测精度）
-        if self._state in (TitrationState.TITRATING, TitrationState.TITRATING_2,
-                           TitrationState.DEGREE_1):
+        if self._state in (
+            TitrationState.TITRATING,
+            TitrationState.TITRATING_2,
+            TitrationState.DEGREE_1,
+        ):
             vol = self._pump2_volume
             self._detector.feed_potential(vol, t, v)
         self._adc_counter += 1
@@ -426,7 +438,11 @@ class MainWindow(QMainWindow):
         t = time.monotonic() - self._t0
         raw_avg = round(sum(self._adc_buffer) / len(self._adc_buffer))
         v = raw_avg * 3.3 / 65535 - 1.1
-        vol = self._pump1_volume if self._state == TitrationState.INJECTING else self._pump2_volume
+        vol = (
+            self._pump1_volume
+            if self._state == TitrationState.INJECTING
+            else self._pump2_volume
+        )
         self._potential_widget.append(t, raw_avg, volume=vol)
         # 记录电位数据点（含 EWMA 平滑）
         if self._recording:
@@ -551,8 +567,11 @@ class MainWindow(QMainWindow):
         self._potential_widget.refresh()
 
     def _run_detection(self) -> None:
-        if self._state not in (TitrationState.TITRATING, TitrationState.TITRATING_2,
-                               TitrationState.DEGREE_1):
+        if self._state not in (
+            TitrationState.TITRATING,
+            TitrationState.TITRATING_2,
+            TitrationState.DEGREE_1,
+        ):
             return
 
         result = self._detector.detect()
@@ -580,7 +599,10 @@ class MainWindow(QMainWindow):
                     f"T={t_val:.2f}  vol={self._pump2_volume:.3f} mL"
                 )
             # 继续滴定到 T=2（用实际累积体积）
-            if self._endpoint_volume and self._pump2_volume >= 2.0 * self._endpoint_volume:
+            if (
+                self._endpoint_volume
+                and self._pump2_volume >= 2.0 * self._endpoint_volume
+            ):
                 self._com.send_frestop(2)
                 # T=2 停泵后用 AMPD 从完整导数曲线精确定位终点
                 ref = self._detector.refine_with_ampd()
@@ -629,15 +651,30 @@ class MainWindow(QMainWindow):
         # ---- Sheet 1: Raw Spectrum ----
         ws = wb.active
         ws.title = "Raw Spectrum"
-        ws.append(["Time (s)", "F1(415)", "F2(445)", "F3(480)", "F4(515)",
-                    "F5(555)", "F6(590)", "F7(630)", "F8(680)", "Clear", "NIR(910)"])
+        ws.append(
+            [
+                "Time (s)",
+                "F1(415)",
+                "F2(445)",
+                "F3(480)",
+                "F4(515)",
+                "F5(555)",
+                "F6(590)",
+                "F7(630)",
+                "F8(680)",
+                "Clear",
+                "NIR(910)",
+            ]
+        )
         for t, vals in self._rec_spectral:
             ws.append([round(t, 3)] + vals)
 
         # ---- Sheet 2: Reconstructed Spectrum ----
         if self._rec_recon_wls is not None and self._rec_recon:
             ws2 = wb.create_sheet("Reconstructed Spectrum")
-            header = ["Wavelength (nm)"] + [f"t={round(t, 3)}s" for t, _ in self._rec_recon]
+            header = ["Wavelength (nm)"] + [
+                f"t={round(t, 3)}s" for t, _ in self._rec_recon
+            ]
             ws2.append(header)
             wls = self._rec_recon_wls
             for i in range(len(wls)):
@@ -648,21 +685,38 @@ class MainWindow(QMainWindow):
 
         # ---- Sheet 3: Potential (Filtered) ----
         ws3 = wb.create_sheet("Potential")
-        ws3.append(["Time (s)", "Raw Voltage (V)", "Filtered Voltage (V)", "Volume (mL)"])
+        ws3.append(
+            ["Time (s)", "Raw Voltage (V)", "Filtered Voltage (V)", "Volume (mL)"]
+        )
         for t, rv, fv, vol in self._rec_potential:
             ws3.append([round(t, 3), round(rv, 6), round(fv, 6), round(vol, 6)])
 
         # ---- Sheet 4: Titration Results ----
         ws4 = wb.create_sheet("Titration Results")
         ws4.append(["Parameter", "Value"])
-        ws4.append(["Endpoint Volume (mL)", round(self._endpoint_volume or result.get("volume", 0), 4)])
+        ws4.append(
+            [
+                "Endpoint Volume (mL)",
+                round(self._endpoint_volume or result.get("volume", 0), 4),
+            ]
+        )
         ws4.append(["Confidence", result.get("confidence", "")])
         ws4.append(["Method", result.get("method", "")])
         if result.get("potential"):
-            ws4.append(["Potential Endpoint (mL)", round(result["potential"].get("volume", 0), 4)])
+            ws4.append(
+                [
+                    "Potential Endpoint (mL)",
+                    round(result["potential"].get("volume", 0), 4),
+                ]
+            )
             ws4.append(["Min dV/dt", result["potential"].get("min_dvdt", "")])
         if result.get("spectral"):
-            ws4.append(["Spectral Endpoint (mL)", round(result["spectral"].get("volume", 0), 4)])
+            ws4.append(
+                [
+                    "Spectral Endpoint (mL)",
+                    round(result["spectral"].get("volume", 0), 4),
+                ]
+            )
             ws4.append(["Max CE", result["spectral"].get("max_ce", "")])
         ws4.append(["C_std (mol/L)", c_std])
         ws4.append(["n_std (标准液)", self._results_panel._n_std.value()])
@@ -717,6 +771,7 @@ class MainWindow(QMainWindow):
         if os.path.isfile(path):
             try:
                 import numpy as _np
+
                 data = _np.load(path, allow_pickle=True)
                 if "n_electrodes" in data:
                     n = int(data["n_electrodes"])
