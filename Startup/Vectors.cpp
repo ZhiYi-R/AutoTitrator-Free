@@ -14,7 +14,7 @@
 //  Forward declarations
 // =========================================================================
 
-extern "C" int main();
+extern "C" int main();  // NOLINT(clang-diagnostic-main) 裸机 main 由 Reset_Handler bl 调用，必须无 name mangling
 
 // =========================================================================
 //  Linker-defined symbols

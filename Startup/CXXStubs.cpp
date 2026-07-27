@@ -56,7 +56,7 @@ void* operator new(std::size_t size) {
     (void)size;
     while (true) {
     }
-    return nullptr;
+    return nullptr;  // NOLINT(clang-diagnostic-new-returns-null) 裸机无堆，operator new 不可达，仅满足链接
 }
 
 void* operator new[](std::size_t size) {
