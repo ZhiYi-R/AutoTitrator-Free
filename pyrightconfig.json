@@ -1,0 +1,26 @@
+{
+  "include": ["TController/src", "TController/scripts"],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "standard",
+  "reportMissingTypeStubs": false,
+  "executionEnvironments": [
+    {
+      "root": "TController/src/gui",
+      "extraPaths": ["TController/src"],
+      "reportOptionalMemberAccess": "none",
+      "reportAttributeAccessIssue": "none",
+      "reportSelfClsParameterName": "none"
+    },
+    {
+      "root": "TController/src",
+      "extraPaths": ["TController/src"]
+    },
+    {
+      "root": "TController/scripts",
+      "extraPaths": ["TController/src"]
+    },
+    {
+      "root": "TController"
+    }
+  ]
+}
