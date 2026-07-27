@@ -31,7 +31,7 @@ jobs:
       - name: Build firmware (elf + hex)
         run: scons
 
-      - name: Build firmware (lst)
+      - name: Build firmware (lst + map)
         run: scons lst
 
       - name: Upload build artifacts
@@ -44,14 +44,19 @@ jobs:
             build/AutoTitrator-Firmware.map
             build/AutoTitrator-Firmware.lst
 
+      - name: Generate release checksums
+        if: startsWith(github.ref, 'refs/tags/RELEASE-')
+        working-directory: build
+        run: |
+          sha256sum AutoTitrator-Firmware.hex AutoTitrator-Firmware.elf > SHA256SUMS
+
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/RELEASE-')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            build/AutoTitrator-Firmware.elf
             build/AutoTitrator-Firmware.hex
-            build/AutoTitrator-Firmware.map
-            build/AutoTitrator-Firmware.lst
+            build/AutoTitrator-Firmware.elf
+            build/SHA256SUMS
           generate_release_notes: true
           name: "Firmware Release ${{ github.ref_name }}"
