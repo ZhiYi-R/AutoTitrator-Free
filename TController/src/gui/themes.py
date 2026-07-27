@@ -1,19 +1,22 @@
 """
 主题管理模块 — 深色/浅色/跟随系统。
-用 QPalette 控制全局配色（保留 Fusion 风格），pyqtgraph API 更新图表。
+
+ttkbootstrap 内置主题切换（一行 style.theme_use），matplotlib 图表
+通过 PlotColors 配色手动更新。
 """
 
 from __future__ import annotations
 
+import platform
 from dataclasses import dataclass, field
 
-from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication
+import ttkbootstrap
+from matplotlib import font_manager, rcParams
 
 
 @dataclass
 class PlotColors:
-    """pyqtgraph 图表配色。"""
+    """matplotlib 图表配色。"""
 
     background: str = "#FFFFFF"
     foreground: str = "#000000"
@@ -32,43 +35,9 @@ class PlotColors:
 @dataclass
 class Theme:
     name: str
+    ttkb_theme: str
+    """ttkbootstrap 主题名。"""
     plot: PlotColors = field(default_factory=PlotColors)
-
-
-# ── 调色板 ──────────────────────────────────────────────────
-
-
-def _make_palette(dark: bool) -> QPalette:
-    p = QPalette()
-    if dark:
-        p.setColor(QPalette.ColorRole.Window, QColor("#1e1e1e"))
-        p.setColor(QPalette.ColorRole.WindowText, QColor("#d4d4d4"))
-        p.setColor(QPalette.ColorRole.Base, QColor("#252526"))
-        p.setColor(QPalette.ColorRole.AlternateBase, QColor("#2d2d2d"))
-        p.setColor(QPalette.ColorRole.ToolTipBase, QColor("#2d2d2d"))
-        p.setColor(QPalette.ColorRole.ToolTipText, QColor("#d4d4d4"))
-        p.setColor(QPalette.ColorRole.Text, QColor("#d4d4d4"))
-        p.setColor(QPalette.ColorRole.Button, QColor("#2d2d2d"))
-        p.setColor(QPalette.ColorRole.ButtonText, QColor("#d4d4d4"))
-        p.setColor(QPalette.ColorRole.BrightText, QColor("#ffffff"))
-        p.setColor(QPalette.ColorRole.Link, QColor("#4da6ff"))
-        p.setColor(QPalette.ColorRole.Highlight, QColor("#094771"))
-        p.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
-    else:
-        p.setColor(QPalette.ColorRole.Window, QColor("#F5F5F5"))
-        p.setColor(QPalette.ColorRole.WindowText, QColor("#1a1a1a"))
-        p.setColor(QPalette.ColorRole.Base, QColor("#ffffff"))
-        p.setColor(QPalette.ColorRole.AlternateBase, QColor("#f8f8f8"))
-        p.setColor(QPalette.ColorRole.ToolTipBase, QColor("#ffffff"))
-        p.setColor(QPalette.ColorRole.ToolTipText, QColor("#1a1a1a"))
-        p.setColor(QPalette.ColorRole.Text, QColor("#1a1a1a"))
-        p.setColor(QPalette.ColorRole.Button, QColor("#e8e8e8"))
-        p.setColor(QPalette.ColorRole.ButtonText, QColor("#1a1a1a"))
-        p.setColor(QPalette.ColorRole.BrightText, QColor("#000000"))
-        p.setColor(QPalette.ColorRole.Link, QColor("#2980b9"))
-        p.setColor(QPalette.ColorRole.Highlight, QColor("#2980b9"))
-        p.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
-    return p
 
 
 # ── 主题定义 ─────────────────────────────────────────────────
@@ -100,23 +69,61 @@ _DARK_PLOT = PlotColors(
 )
 
 THEMES: dict[str, Theme] = {
-    "light": Theme(name="浅色", plot=_LIGHT_PLOT),
-    "dark": Theme(name="深色", plot=_DARK_PLOT),
+    "light": Theme(name="浅色", ttkb_theme="litera", plot=_LIGHT_PLOT),
+    "dark": Theme(name="深色", ttkb_theme="darkly", plot=_DARK_PLOT),
 }
 
 MODE_NAMES = {"light": "浅色", "dark": "深色", "system": "跟随系统"}
+
+
+# ── matplotlib 中文字体设置 ────────────────────────────────────
+
+
+def _setup_matplotlib_fonts() -> None:
+    """配置 matplotlib 中文字体（解决 Glyph missing 警告）。"""
+    candidates = []
+    system = platform.system()
+    if system == "Windows":
+        candidates = ["Microsoft YaHei", "SimHei", "Microsoft JhengHei"]
+    elif system == "Darwin":
+        candidates = ["PingFang SC", "Heiti SC", "STHeiti"]
+    else:
+        candidates = ["WenQuanYi Micro Hei", "Noto Sans CJK SC", "Droid Sans Fallback"]
+
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    for name in candidates:
+        if name in available:
+            rcParams["font.sans-serif"] = [name, "DejaVu Sans"]
+            rcParams["axes.unicode_minus"] = False
+            return
+    # 无中文字体时仅禁用负号回退
+    rcParams["axes.unicode_minus"] = False
 
 
 # ── 系统检测 ─────────────────────────────────────────────────
 
 
 def _system_is_dark() -> bool:
-    app = QApplication.instance()
-    if app is None:
-        return False
-    bg = app.palette().color(QPalette.ColorRole.Window)
-    luma = 0.2126 * bg.red() + 0.7152 * bg.green() + 0.0722 * bg.blue()
-    return luma < 128
+    """检测系统是否暗色模式。"""
+    system = platform.system()
+    if system == "Windows":
+        try:
+            import winreg
+
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            )
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            winreg.CloseKey(key)
+            return value == 0
+        except Exception:
+            return False
+    elif system == "Darwin":
+        import os
+
+        return os.environ.get("USER_UI_THEME", "").lower() == "dark"
+    return False
 
 
 # ── 应用主题 ─────────────────────────────────────────────────
@@ -132,28 +139,48 @@ def resolve_theme(mode: str) -> tuple[str, Theme]:
 
 
 def apply_theme(mode: str, plots: list | None = None) -> str:
-    """应用主题，返回实际生效的 key ('light'|'dark')。"""
+    """应用主题，返回实际生效的 key ('light'|'dark')。
+
+    Args:
+        mode: 'light' | 'dark' | 'system'
+        plots: _BlitPlot 实例列表，用于更新 matplotlib 配色
+    """
     key, theme = resolve_theme(mode)
-    app = QApplication.instance()
-    if app:
-        palette = _make_palette(key == "dark")
-        app.setPalette(palette)
-        app.setStyleSheet("")  # 清除 QSS，避免与 Fusion 冲突
+
+    # ttkbootstrap 主题切换
+    style = ttkbootstrap.Style.get_instance()
+    if style is not None:
+        style.theme_use(theme.ttkb_theme)
+
+    # matplotlib 图表配色
     if plots:
         _apply_plot_colors(theme.plot, plots)
+
     return key
 
 
 def _apply_plot_colors(pc: PlotColors, plots: list) -> None:
+    """更新所有 matplotlib 图表的配色。"""
     for pw in plots:
         if pw is None:
             continue
-        pw.setBackground(pc.background)
-        for axis_name in ("bottom", "left"):
-            ax = pw.getAxis(axis_name)
-            if ax:
-                ax.setPen(pc.foreground)
-                ax.setTextPen(pc.foreground)
+        ax = getattr(pw, "_ax", None)
+        fig = getattr(pw, "_fig", None)
+        if ax is not None:
+            ax.set_facecolor(pc.background)
+            ax.tick_params(colors=pc.foreground)
+            for spine in ax.spines.values():
+                spine.set_edgecolor(pc.foreground)
+            ax.xaxis.label.set_color(pc.foreground)
+            ax.yaxis.label.set_color(pc.foreground)
+            ax.title.set_color(pc.foreground)
+        if fig is not None:
+            fig.set_facecolor(pc.background)
+        # 标记需要全量重绘
+        if hasattr(pw, "_request_full_redraw"):
+            pw._request_full_redraw()
+        if hasattr(pw, "refresh"):
+            pw.refresh()
 
 
 __all__ = [
@@ -161,6 +188,7 @@ __all__ = [
     "THEMES",
     "PlotColors",
     "Theme",
+    "_setup_matplotlib_fonts",
     "apply_theme",
     "resolve_theme",
 ]
