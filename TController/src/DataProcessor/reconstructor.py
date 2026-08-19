@@ -77,9 +77,18 @@ def reconstruct(
     raw = np.asarray(raw_values, dtype=np.float64)
     if raw.shape != (10,):
         raise ValueError(f"需要 10 通道数据，传入形状为 {raw.shape}")
+    if np.any(raw < 0):
+        raise ValueError("原始通道值不应包含负数")
+    if np.any(np.isnan(raw)) or np.any(np.isinf(raw)):
+        raise ValueError("原始通道值包含 NaN 或 Inf")
 
     ofs = cal["offsets"] if offsets is None else np.asarray(offsets, dtype=np.float64)
     fac = cal["factors"] if factors is None else np.asarray(factors, dtype=np.float64)
+    
+    if offsets is not None and (ofs.shape != (10,) or np.any(np.isnan(ofs))):
+        raise ValueError("offsets 必须为长度 10 的有效数组")
+    if factors is not None and (fac.shape != (10,) or np.any(fac <= 0) or np.any(np.isnan(fac))):
+        raise ValueError("factors 必须为长度 10 的正数数组")
 
     corrected = fac * np.maximum(raw - ofs, 0.0)
     spectrum = np.maximum(
