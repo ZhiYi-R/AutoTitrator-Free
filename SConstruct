@@ -39,7 +39,7 @@ env.Append(
     CCFLAGS=[
         '-mcpu=%s' % MCU, '-mthumb',
         '-ffunction-sections', '-fdata-sections',
-        '-O0', '-g3', '-Wall', '-Wextra',
+        '-Os', '-g3', '-Wall', '-Wextra',
     ],
     CXXFLAGS=[
         '-std=c++23',
