@@ -35,6 +35,7 @@ CLAUDE.md
 .github/copilot-instructions.md
 continue.config.json
 .agents/
+.zcode/
 docs/MoonEmbedded/
 
 # Embedded build artifacts
