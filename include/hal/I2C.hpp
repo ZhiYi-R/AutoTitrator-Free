@@ -165,30 +165,37 @@ public:
 
         /** 地址 + R */
         I2C1::DR::WriteDR((addr7 << 1) | 1);
-        if (!waitAddrCleared(t0, timeoutMs)) return false;
 
-        /** 配置 ACK/POS */
+        /**
+         * 单字节读（RM0008 EV6_1）：
+         *   在 ADDR 置位后、清除前设 ACK=0（POS=0），
+         *   清除 ADDR 后立即设 STOP，再等 RxNE 读数据。
+         * 多字节读（N>1）：
+         *   清除 ADDR 后保持 ACK=1，倒数第二字节时清 ACK + STOP。
+         */
         if (len == 1) {
-            I2C1::CR1::WriteACK(0); /** 单字节：NACK + STOP */
-            I2C1::CR1::WritePOS(1);
-        } else {
-            I2C1::CR1::WriteACK(1); /** 多字节：ACK */
-        }
-
-        /** 读数据 */
-        for (size_t i = 0; i < len; ++i) {
+            if (!waitEvent(I2C1::SR1::ReadADDR, t0, timeoutMs)) return false;
+            I2C1::CR1::WriteACK(0);  /** NACK 当前字节（POS=0） */
+            (void)I2C1::SR2::Read(); /** 清 ADDR */
+            I2C1::CR1::WriteSTOP(1); /** 紧接着产生 STOP */
             if (!waitEvent(I2C1::SR1::ReadRxNE, t0, timeoutMs)) return false;
-            buf[i] = static_cast<uint8_t>(I2C1::DR::ReadDR());
-            if (i == len - 2) {
-                /** 倒数第二字节：准备 NACK + STOP */
-                I2C1::CR1::WriteACK(0);
-                I2C1::CR1::WriteSTOP(1);
+            buf[0] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+        } else {
+            if (!waitAddrCleared(t0, timeoutMs)) return false;
+            I2C1::CR1::WriteACK(1); /** 多字节：ACK */
+            for (size_t i = 0; i < len; ++i) {
+                if (!waitEvent(I2C1::SR1::ReadRxNE, t0, timeoutMs)) return false;
+                buf[i] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+                if (i == len - 2) {
+                    /** 倒数第二字节：准备 NACK + STOP */
+                    I2C1::CR1::WriteACK(0);
+                    I2C1::CR1::WriteSTOP(1);
+                }
             }
         }
 
         /** 恢复 ACK */
         I2C1::CR1::WriteACK(1);
-        I2C1::CR1::WritePOS(0);
         return true;
     }
 
@@ -332,10 +339,13 @@ public:
             case Phase::RestartAddrR:
                 I2C1::DR::WriteDR((g_addr7 << 1) | 1);
                 g_phase = Phase::ReadData;
-                /** 配置 ACK */
+                /**
+                 * ACK 配置：
+                 *   单字节读：ACK=0，STOP/POS 在 ADDR 事件中处理（见上方 ADDR 分支）
+                 *   多字节读：ACK=1，倒数第二字节时清 ACK + STOP（见下方 RxNE 分支）
+                 */
                 if (g_len == 1) {
                     I2C1::CR1::WriteACK(0);
-                    I2C1::CR1::WritePOS(1);
                 } else {
                     I2C1::CR1::WriteACK(1);
                 }
@@ -348,6 +358,17 @@ public:
 
         /** ADDR */
         if (sr1 & 0x0002) {
+            /**
+             * 单字节读（RM0008 EV6_1）：ADDR 置位时清 ACK，
+             * 读 SR2 清 ADDR 后立即设 STOP。
+             * POS=0（仅 2 字节读才用 POS）。
+             */
+            if (g_isRead && g_len == 1) {
+                I2C1::CR1::WriteACK(0);
+                (void)I2C1::SR2::Read(); /** 清 ADDR */
+                I2C1::CR1::WriteSTOP(1);
+                return;
+            }
             /** 读 SR2 已清 ADDR */
             return;
         }
@@ -397,8 +418,11 @@ public:
                 if (g_rxbuf != nullptr && g_idx < g_len) {
                     g_rxbuf[g_idx] = static_cast<uint8_t>(I2C1::DR::ReadDR());
                     g_idx = g_idx + 1;
-                    if (g_idx == g_len - 1) {
-                        /** 倒数第二字节：NACK + STOP */
+                    /**
+                     * 多字节读（N>1）：倒数第二字节时 NACK + STOP。
+                     * 单字节读（N=1）：STOP 已在 ADDR 事件中发送，此处无需再设。
+                     */
+                    if (g_len > 1 && g_idx == g_len - 1) {
                         I2C1::CR1::WriteACK(0);
                         I2C1::CR1::WriteSTOP(1);
                     }
@@ -406,7 +430,6 @@ public:
                 if (g_idx >= g_len) {
                     /** 读完成 */
                     I2C1::CR1::WriteACK(1);
-                    I2C1::CR1::WritePOS(0);
                     finishComplete();
                 }
             }
@@ -473,6 +496,10 @@ public:
         I2C1::CCR::WriteCCR(180);
         I2C1::TRISE::WriteTRISE(37);
         I2C1::CR1::WritePE(1);
+        /** 恢复事件 + 缓冲 + 错误中断使能（与 initialize() 一致） */
+        I2C1::CR2::WriteITEVTEN(1);
+        I2C1::CR2::WriteITBUFEN(1);
+        I2C1::CR2::WriteITERREN(1);
         Platform::SysTick_::delayMs(5);
     }
 

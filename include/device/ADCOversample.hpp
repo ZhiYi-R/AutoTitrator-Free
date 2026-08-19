@@ -95,11 +95,11 @@ public:
      */
     static void onConvCplt(uint16_t value) noexcept {
         if (!g_ready) return;
+        if (g_dataReady) return;  /** 已就绪：停止累加，等主循环读取后续采 */
         g_acc = g_acc + value;
         g_count = g_count + 1;
         if (g_count >= OVERSAMPLE) {
             g_dataReady = true;
-            /** 停止累加，等主循环读取后续采 */
         }
     }
 

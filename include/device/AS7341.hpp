@@ -356,11 +356,11 @@ private:
     /** 状态 */
 
     inline static Sequence g_seq = Sequence::Idle;
-    inline static bool g_ready{false};
-    inline static bool g_error{false};
-    inline static bool g_dataValid{false};
-    inline static bool g_ioDone{false};
-    inline static bool g_phase2{false};
+    inline static volatile bool g_ready{false};
+    inline static volatile bool g_error{false};
+    inline static volatile bool g_dataValid{false};
+    inline static volatile bool g_ioDone{false};
+    inline static volatile bool g_phase2{false};
     inline static SpectralData g_data{};
     inline static uint16_t g_clear1{0};
     inline static uint16_t g_nir1{0};
