@@ -103,9 +103,9 @@ public:
         TIM4::CCR1::WriteCCR1(ccr);
         TIM4::CCR2::WriteCCR2(ccr);
 
-        /** 使能 CH1/CH2 输出 */
-        TIM4::CCER::WriteCC1E(1);
-        TIM4::CCER::WriteCC2E(1);
+        /** 默认关闭输出，startPWM() 再按通道打开，避免单泵启动带动另一路 */
+        TIM4::CCER::WriteCC1E(0);
+        TIM4::CCER::WriteCC2E(0);
 
         /** 产生更新事件加载 PSC/ARR/CCR */
         TIM4::EGR::Write(1);
