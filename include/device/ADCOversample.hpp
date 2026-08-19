@@ -77,14 +77,18 @@ public:
      */
     static Result readData() noexcept {
         Result r{};
-        __asm volatile("cpsid i" ::: "memory");
+        uint32_t primask;
+        __asm volatile("mrs %0, primask\n\tcpsid i"
+                       : "=r"(primask)
+                       :
+                       : "memory");
         r.sum = g_acc;
         r.samples = OVERSAMPLE;
         r.shift = SHIFT;
         g_dataReady = false;
         g_acc = 0;
         g_count = 0;
-        __asm volatile("cpsie i" ::: "memory");
+        __asm volatile("msr primask, %0" : : "r"(primask) : "memory");
         return r;
     }
 

@@ -89,7 +89,6 @@ public:
     static void onConvCplt() noexcept {
         if (STM32F103::ADC1::SR::ReadEOC() != 0) {
             uint16_t v = readDR();
-            STM32F103::ADC1::SR::WriteEOC(0); /** 清标志 */
             if (g_convCallback != nullptr) {
                 g_convCallback(v);
             }
