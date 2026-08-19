@@ -576,9 +576,14 @@ public:
      * @brief 总线恢复（9 个 SCL 脉冲解锁被拉低的 SDA）
      *
      * 注意：I2C1 REMAP 后 SCL=PB8, SDA=PB9
+     * 总延时约 23ms，恢复前后喂狗防止 IWDG 超时
      */
     static void recoverBus() noexcept {
         using namespace STM32F103;
+        
+        /** 恢复前喂狗（23ms 阻塞期间可能导致看门狗超时） */
+        Platform::IWDG_::reload();
+        
         /** 复位 I2C 外设 */
         I2C1::CR1::Write(0);
         I2C1::CR1::WriteSWRST(1);
@@ -618,6 +623,9 @@ public:
         /** 同步恢复后保持中断关闭，下一次异步传输再使能。 */
         disableInterrupts();
         Platform::SysTick_::delayMs(5);
+        
+        /** 恢复后再次喂狗 */
+        Platform::IWDG_::reload();
     }
 
     I2C() = delete;
