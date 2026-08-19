@@ -41,6 +41,8 @@ public:
         case State::GotBB:
             if (b == FrameCodec::DOWNLINK_PREAMBLE1) {
                 s_state = State::GotCmd;
+            } else if (b == FrameCodec::DOWNLINK_PREAMBLE0) {
+                s_state = State::GotBB;
             } else {
                 s_state = State::Idle;
             }

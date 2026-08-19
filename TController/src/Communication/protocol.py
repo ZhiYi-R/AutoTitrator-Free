@@ -312,6 +312,7 @@ class ProtocolHandler:
 
         # ACK/NAK 重试
         self._pending_cmd: bytes | None = None
+        self._pending_cmd_id: int | None = None
         self._retry_count: int = 0
         self._max_retries: int = 5
         self._backoff_ms: int = 50
@@ -349,7 +350,7 @@ class ProtocolHandler:
         if self._timeout_flag:
             self._timeout_flag = False
             if not self._ack_received and self._pending_cmd is not None:
-                self._handle_nak()
+                self._handle_nak(self._pending_cmd_id)
 
         # 排空事件队列
         while True:
@@ -362,9 +363,9 @@ class ProtocolHandler:
     def _dispatch(self, event: _Event) -> None:
         # 内部事件先处理
         if event.kind == "ack":
-            self._on_ack()
+            self._on_ack(event.data)
         elif event.kind == "nak":
-            self._handle_nak()
+            self._handle_nak(event.data)
 
         # 单次 pump_done 回调
         if event.kind == "pump_done" and self._pump_done_once is not None:
@@ -414,20 +415,20 @@ class ProtocolHandler:
                 (count >> 24) & 0xFF,
             ]
         )
-        self._reader.write(self._build_downlink(0x01, params))
+        self.send_cmd(0x01, params)
 
     def send_frerun(self, pump_id: int) -> None:
-        self._reader.write(self._build_downlink(0x02, bytes([pump_id])))
+        self.send_cmd(0x02, bytes([pump_id]))
 
     def send_frestop(self, pump_id: int = 0xFF) -> None:
-        self._reader.write(self._build_downlink(0x03, bytes([pump_id])))
+        self.send_cmd(0x03, bytes([pump_id]))
 
     def send_abort(self, pump_id: int = 0xFF) -> None:
-        self._reader.write(self._build_downlink(0x04, bytes([pump_id])))
+        self.send_cmd(0x04, bytes([pump_id]))
 
     def send_reset(self) -> None:
         """下发 MCU 复位指令。"""
-        self._reader.write(self._build_downlink(0x06))
+        self.send_cmd(0x06)
 
     def send_raw(self, data: bytes) -> None:
         """发送已在外部构建好的完整帧。"""
@@ -445,15 +446,18 @@ class ProtocolHandler:
 
     # ---- 带重试的命令发送 ----
 
-    def _on_ack(self) -> None:
+    def _on_ack(self, cmd: int) -> None:
+        if self._pending_cmd_id != cmd:
+            return
         self._ack_received = True
         self._pending_cmd = None
+        self._pending_cmd_id = None
         self._retry_count = 0
         self._cancel_timers()
 
-    def _handle_nak(self) -> None:
+    def _handle_nak(self, cmd: int) -> None:
         """NAK 处理：指数退避重传（在主线程 poll() 中调用）。"""
-        if self._pending_cmd is None:
+        if self._pending_cmd is None or self._pending_cmd_id != cmd:
             return
         self._retry_count += 1
         if self._retry_count >= self._max_retries:
@@ -470,12 +474,16 @@ class ProtocolHandler:
         """重传（Timer 线程调用，仅写串口，线程安全）。"""
         if self._pending_cmd:
             self._reader.write(self._pending_cmd)
+            self._first_timeout_timer = threading.Timer(0.1, self._on_first_timeout)
+            self._first_timeout_timer.daemon = True
+            self._first_timeout_timer.start()
 
     def _send_abort_and_error(self) -> None:
         self._pending_cmd = None
+        self._pending_cmd_id = None
         self._retry_count = 0
         self._cancel_timers()
-        self.send_abort(0xFF)
+        self._reader.write(self._build_downlink(0x04, bytes([0xFF])))
         self._event_queue.put(_Event("error", "下位机通讯异常"))
 
     def _cancel_timers(self) -> None:
@@ -488,13 +496,17 @@ class ProtocolHandler:
 
     def send_cmd(self, cmd: int, params: bytes = b"") -> None:
         """发送命令并启动 ACK/NAK 重试监控（含 100ms 首包超时）。"""
+        expected_len = _DOWNLINK.get(cmd)
+        if expected_len is None or len(params) != expected_len:
+            raise ValueError(f"invalid parameters for command 0x{cmd:02X}")
         frame = self._build_downlink(cmd, params)
+        self._cancel_timers()
         self._pending_cmd = frame
+        self._pending_cmd_id = cmd
         self._ack_received = False
         self._retry_count = 0
         self._reader.write(frame)
         # 启动首包超时定时器
-        self._cancel_timers()
         self._first_timeout_timer = threading.Timer(0.1, self._on_first_timeout)
         self._first_timeout_timer.daemon = True
         self._first_timeout_timer.start()

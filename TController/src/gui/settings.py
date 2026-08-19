@@ -40,6 +40,8 @@ def load_settings() -> dict:
         merged["language"] = DEFAULT_LANG
     if merged["theme_mode"] not in ("light", "dark", "system"):
         merged["theme_mode"] = "system"
+    if merged["baud"] != 115200:
+        merged["baud"] = 115200
     return merged
 
 

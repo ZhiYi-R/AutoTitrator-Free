@@ -224,7 +224,7 @@ class MainWindow(ttk.Frame):
         self._baud_label.pack(side="left", padx=(8, 4))
         self._baud_cb = ttk.Combobox(
             conn_row,
-            values=["9600", "19200", "38400", "57600", "115200", "230400"],
+            values=["115200"],
             state="readonly",
             width=6,
         )
