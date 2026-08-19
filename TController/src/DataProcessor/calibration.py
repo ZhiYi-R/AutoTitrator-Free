@@ -41,11 +41,22 @@ FLOW_RATE = PUMP_SLOPE * PUMP_STEP_FREQ
 
 
 def steps_from_volume(vol_mL: float) -> int:
-    return max(0, int(vol_mL / PUMP_SLOPE))
+    """将体积（mL）转换为泵步数。
+    
+    使用线性模型反向计算：steps = (volume - intercept) / slope
+    """
+    if PUMP_SLOPE <= 0:
+        raise ValueError(f"PUMP_SLOPE 必须为正数，当前值为 {PUMP_SLOPE}")
+    steps = (vol_mL - PUMP_INTERCEPT) / PUMP_SLOPE
+    return max(0, int(steps))
 
 
 def volume_from_steps(steps: int) -> float:
-    return PUMP_SLOPE * steps
+    """将泵步数转换为体积（mL）。
+    
+    使用线性模型：volume = slope × steps + intercept
+    """
+    return PUMP_SLOPE * steps + PUMP_INTERCEPT
 
 
 def update_from_file() -> None:
