@@ -16,7 +16,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.dialogs import Messagebox
 
 from Communication import ProtocolHandler
-from DataProcessor import PUMP_SLOPE, EndpointDetector, steps_from_volume
+from DataProcessor import EndpointDetector, steps_from_volume, volume_from_steps
 from DataProcessor import reconstruct as _reconstruct
 from DataProcessor._path import CALIBRE_PATH
 from gui import i18n, themes
@@ -616,7 +616,7 @@ class MainWindow(ttk.Frame):
         v = raw * 3.3 / 65535 - 1.1
         # 更新 Pump2 体积（基于固件实际步数）
         old_vol = self._pump2_volume
-        self._pump2_volume = PUMP_SLOPE * pump2_pos
+        self._pump2_volume = volume_from_steps(pump2_pos)
         self._update_gauge()
         # 泵体积变化时更新活动区
         if self._state in (
@@ -650,12 +650,12 @@ class MainWindow(ttk.Frame):
         self._adc_counter += 1
 
     def _on_pump1_progress(self, pos: int) -> None:
-        self._pump1_volume = PUMP_SLOPE * pos
+        self._pump1_volume = volume_from_steps(pos)
         self._results_panel.update_inject_progress(pos, volume=self._pump1_volume)
         self._flush_adc_buffer()
 
     def _on_pump2_progress(self, pos: int) -> None:
-        self._pump2_volume = PUMP_SLOPE * pos
+        self._pump2_volume = volume_from_steps(pos)
         self._update_gauge()
         self._flush_adc_buffer()
 

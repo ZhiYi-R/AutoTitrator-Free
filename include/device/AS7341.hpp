@@ -7,6 +7,7 @@
 
 #include <device/AS7341_Reg.hpp>
 #include <hal/I2C.hpp>
+#include <platform/IWDG.hpp>
 #include <platform/SysTick.hpp>
 #include <cstdint>
 

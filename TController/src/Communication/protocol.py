@@ -443,8 +443,13 @@ class ProtocolHandler:
         self.send_cmd(0x05, bytes([0x01]))
 
     def send_heartbeat(self) -> None:
-        """发送心跳帧，维持下位机看门狗（带 ACK 重试，防止丢包导致误触发）。"""
-        self.send_cmd(0x05, bytes([0x01]))
+        """发送心跳帧，不占用普通命令的 ACK/重试状态。"""
+        # 普通命令只有一个 pending 槽；命令等待确认时跳过本次心跳，
+        # 避免覆盖泵控制命令并误判其 ACK。
+        if self._pending_cmd is not None:
+            return
+        frame = self._build_downlink(0x05, bytes([0x01]))
+        self._reader.write(frame)
 
     # ---- 带重试的命令发送 ----
 

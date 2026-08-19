@@ -6,6 +6,7 @@
 #pragma once
 
 #include <hal/GPIO.hpp>
+#include <platform/IWDG.hpp>
 #include <platform/NVIC.hpp>
 #include <platform/SysTick.hpp>
 #include <stm32f103/AFIO.hpp>

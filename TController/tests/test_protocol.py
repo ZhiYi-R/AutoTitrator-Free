@@ -35,6 +35,19 @@ def test_ack_requires_matching_pending_command() -> None:
     assert handler._pending_cmd is None
 
 
+def test_send_heartbeat_does_not_overwrite_pending_command() -> None:
+    handler = ProtocolHandler()
+    pending = b"pending"
+    handler._pending_cmd = pending
+    handler._pending_cmd_id = 0x02
+    handler._reader.write = lambda _data: None
+
+    handler.send_heartbeat()
+
+    assert handler._pending_cmd == pending
+    assert handler._pending_cmd_id == 0x02
+
+
 def test_send_cmd_rejects_invalid_parameter_length() -> None:
     handler = ProtocolHandler()
     try:
