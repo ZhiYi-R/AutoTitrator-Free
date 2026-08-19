@@ -76,8 +76,15 @@ public:
      * @return 过采样结果
      */
     static Result readData() noexcept {
-        Result r{g_acc, OVERSAMPLE, SHIFT};
-        startMeasurement();
+        Result r{};
+        __asm volatile("cpsid i" ::: "memory");
+        r.sum = g_acc;
+        r.samples = OVERSAMPLE;
+        r.shift = SHIFT;
+        g_dataReady = false;
+        g_acc = 0;
+        g_count = 0;
+        __asm volatile("cpsie i" ::: "memory");
         return r;
     }
 

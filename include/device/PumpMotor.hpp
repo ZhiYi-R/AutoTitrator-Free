@@ -38,7 +38,7 @@ public:
      */
     static void initialize(uint16_t hz = 1000) noexcept {
         HAL::TIM::initTIM4(hz);
-        HAL::TIM::setUpdateCallback(&onTick);
+        HAL::TIM::setUpdateCallback(Channel - 1, &onTick);
         g_initialized = true;
     }
 

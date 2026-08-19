@@ -185,8 +185,8 @@ public:
     static void onUpdate() noexcept {
         if (STM32F103::TIM4::SR::ReadUIF() != 0) {
             STM32F103::TIM4::SR::WriteUIF(0);
-            if (g_updateCallback != nullptr) {
-                g_updateCallback();
+            for (auto cb : g_updateCallbacks) {
+                if (cb != nullptr) cb();
             }
         }
     }
@@ -198,16 +198,17 @@ public:
 
     /**
      * @brief 注册 UPDATE 回调
+     * @param index 回调索引（0 或 1）
      * @param cb 回调函数
      */
-    static void setUpdateCallback(UpdateCallback cb) noexcept {
-        g_updateCallback = cb;
+    static void setUpdateCallback(uint8_t index, UpdateCallback cb) noexcept {
+        if (index < 2) g_updateCallbacks[index] = cb;
     }
 
     TIM() = delete;
 
 private:
-    inline static UpdateCallback g_updateCallback{nullptr};
+    inline static UpdateCallback g_updateCallbacks[2]{nullptr, nullptr};
 };
 
 } // namespace HAL

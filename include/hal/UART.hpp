@@ -93,7 +93,7 @@ public:
      * @brief 获取 DMA 接收缓冲区指针
      * @return DMA 缓冲区首地址
      */
-    static uint8_t* dmaBuffer() noexcept { return g_dmaBuf; }
+    static volatile uint8_t* dmaBuffer() noexcept { return g_dmaBuf; }
 
     /**
      * @brief 获取 DMA 接收缓冲区大小
@@ -204,8 +204,8 @@ public:
 private:
     static constexpr size_t TX_BUF_SIZE = 32;
 
-    inline static uint8_t g_dmaBuf[DMA_BUF_SIZE]{};
-    inline static uint8_t g_txBuf[TX_BUF_SIZE]{};
+    inline static volatile uint8_t g_dmaBuf[DMA_BUF_SIZE]{};
+    inline static volatile uint8_t g_txBuf[TX_BUF_SIZE]{};
     inline static volatile size_t g_txLen{0};
     inline static volatile size_t g_txIdx{0};
     inline static volatile bool g_txIdle{true};

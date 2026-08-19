@@ -28,18 +28,47 @@ int __cxa_atexit(void (*)(void*), void*, void*) {
 
 // ---------------------------------------------------------------------------
 // Guard variable support for function-local static variables
-// (single-threaded bare-metal: no lock needed)
+// (single-threaded bare-metal with interrupts: save/restore PRIMASK)
 // ---------------------------------------------------------------------------
+
+static uint32_t disableIrqSave() noexcept {
+    uint32_t primask;
+    __asm volatile("mrs %0, primask\n\tcpsid i"
+                   : "=r"(primask)
+                   :
+                   : "memory");
+    return primask;
+}
+
+static void restoreIrq(uint32_t primask) noexcept {
+    __asm volatile("msr primask, %0" : : "r"(primask) : "memory");
+}
+
+/** 保存最近一次 __cxa_guard_acquire 的 PRIMASK，供 release/abort 恢复。
+ *  单线程裸机中同一时刻只有一个静态对象在构造（因已关中断），全局变量足够。 */
+static uint32_t g_guardPrimask{0};
+
 int __cxa_guard_acquire(std::int64_t* g) {
-    return !(*g);  // return 1 if not yet initialised
+    auto* p = reinterpret_cast<std::uint8_t*>(g);
+    g_guardPrimask = disableIrqSave();
+    if (*p == 0) {
+        *p = 1;  // 构造中
+        return 1;
+    }
+    restoreIrq(g_guardPrimask);
+    return 0;
 }
 
 void __cxa_guard_release(std::int64_t* g) {
-    *g = 1;
+    auto* p = reinterpret_cast<std::uint8_t*>(g);
+    *p = 1;  // 已构造完成
+    restoreIrq(g_guardPrimask);
 }
 
 void __cxa_guard_abort(std::int64_t* g) {
-    (void)g;
+    auto* p = reinterpret_cast<std::uint8_t*>(g);
+    *p = 0;  // 重置
+    restoreIrq(g_guardPrimask);
 }
 
 }  // extern "C"

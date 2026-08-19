@@ -79,6 +79,7 @@ public:
     static void flush() noexcept {
         g_rxHead = 0;
         g_rxTail = 0;
+        g_lastDmaPos = HAL::UART::dmaWritePos();
     }
 
     /** TX */
@@ -128,8 +129,9 @@ private:
      */
     static void drainDMA() noexcept {
         size_t curPos = HAL::UART::dmaWritePos();
+        volatile const uint8_t* dmaBuf = HAL::UART::dmaBuffer();
         while (g_lastDmaPos != curPos) {
-            uint8_t b = HAL::UART::dmaBuffer()[g_lastDmaPos];
+            uint8_t b = dmaBuf[g_lastDmaPos];
             putRx(b);
             g_lastDmaPos = (g_lastDmaPos + 1) & (HAL::UART::dmaBufferSize() - 1);
         }

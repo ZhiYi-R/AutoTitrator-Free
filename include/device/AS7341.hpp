@@ -58,6 +58,15 @@ public:
     static void service() noexcept {
         if (g_i2cBusy) return;
 
+        /** I2C 出错：复位状态机，让主循环重新启动新一轮测量 */
+        if (g_error) {
+            g_error = false;
+            g_i2cBusy = false;
+            g_ioDone = false;
+            g_seq = Sequence::Idle;
+            return;
+        }
+
         switch (g_seq) {
         case Sequence::SweepF1F4:
             doStartSMUX(Device::AS7341_Reg::SMUX_F1F4);
@@ -365,7 +374,7 @@ private:
     inline static uint16_t g_clear1{0};
     inline static uint16_t g_nir1{0};
     inline static volatile bool g_i2cBusy{false};
-    inline static uint8_t g_rxBuf[12]{};
+    inline static volatile uint8_t g_rxBuf[12]{};
 };
 
 } // namespace Device

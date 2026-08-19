@@ -170,7 +170,10 @@ public:
          * 单字节读（RM0008 EV6_1）：
          *   在 ADDR 置位后、清除前设 ACK=0（POS=0），
          *   清除 ADDR 后立即设 STOP，再等 RxNE 读数据。
-         * 多字节读（N>1）：
+         * 两字节读（RM0008 N=2）：
+         *   必须先置 POS=1，ACK=1；清 ADDR 后清 ACK，
+         *   等待 BTF 后置 STOP，连读两字节。
+         * 多字节读（N>2）：
          *   清除 ADDR 后保持 ACK=1，倒数第二字节时清 ACK + STOP。
          */
         if (len == 1) {
@@ -180,9 +183,20 @@ public:
             I2C1::CR1::WriteSTOP(1); /** 紧接着产生 STOP */
             if (!waitEvent(I2C1::SR1::ReadRxNE, t0, timeoutMs)) return false;
             buf[0] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+        } else if (len == 2) {
+            I2C1::CR1::WritePOS(1);
+            I2C1::CR1::WriteACK(1);
+            if (!waitEvent(I2C1::SR1::ReadADDR, t0, timeoutMs)) return false;
+            (void)I2C1::SR2::Read(); /** 清 ADDR */
+            I2C1::CR1::WriteACK(0);   /** NACK 第 2 字节 */
+            if (!waitEvent(I2C1::SR1::ReadBTF, t0, timeoutMs)) return false;
+            I2C1::CR1::WriteSTOP(1);  /** 产生 STOP */
+            buf[0] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+            buf[1] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+            I2C1::CR1::WritePOS(0);   /** 恢复 POS */
         } else {
+            I2C1::CR1::WriteACK(1); /** 多字节：ACK 必须在首字节接收前置位 */
             if (!waitAddrCleared(t0, timeoutMs)) return false;
-            I2C1::CR1::WriteACK(1); /** 多字节：ACK */
             for (size_t i = 0; i < len; ++i) {
                 if (!waitEvent(I2C1::SR1::ReadRxNE, t0, timeoutMs)) return false;
                 buf[i] = static_cast<uint8_t>(I2C1::DR::ReadDR());
@@ -257,7 +271,7 @@ public:
      * @param len 读取长度
      * @return true=已启动, false=忙或超限
      */
-    static bool readRegIT(uint8_t addr7, uint8_t reg, uint8_t* buf,
+    static bool readRegIT(uint8_t addr7, uint8_t reg, volatile uint8_t* buf,
                           size_t len) noexcept {
         using namespace STM32F103;
         if (g_busy) return false;
@@ -340,12 +354,16 @@ public:
                 I2C1::DR::WriteDR((g_addr7 << 1) | 1);
                 g_phase = Phase::ReadData;
                 /**
-                 * ACK 配置：
-                 *   单字节读：ACK=0，STOP/POS 在 ADDR 事件中处理（见上方 ADDR 分支）
-                 *   多字节读：ACK=1，倒数第二字节时清 ACK + STOP（见下方 RxNE 分支）
+                 * ACK/POS 配置：
+                 *   单字节读：ACK=0，STOP 在 ADDR 事件中处理
+                 *   两字节读：POS=1, ACK=1，清 ADDR 后再清 ACK，由 BTF 读双字节
+                 *   多字节读（N>2）：ACK=1，倒数第二字节时清 ACK + STOP
                  */
                 if (g_len == 1) {
                     I2C1::CR1::WriteACK(0);
+                } else if (g_len == 2) {
+                    I2C1::CR1::WritePOS(1);
+                    I2C1::CR1::WriteACK(1);
                 } else {
                     I2C1::CR1::WriteACK(1);
                 }
@@ -361,12 +379,17 @@ public:
             /**
              * 单字节读（RM0008 EV6_1）：ADDR 置位时清 ACK，
              * 读 SR2 清 ADDR 后立即设 STOP。
-             * POS=0（仅 2 字节读才用 POS）。
+             * 两字节读：POS=1, ACK=1 已在 SB 中置位；清 ACK 后等待 BTF。
              */
             if (g_isRead && g_len == 1) {
                 I2C1::CR1::WriteACK(0);
                 (void)I2C1::SR2::Read(); /** 清 ADDR */
                 I2C1::CR1::WriteSTOP(1);
+                return;
+            }
+            if (g_isRead && g_len == 2) {
+                (void)I2C1::SR2::Read(); /** 清 ADDR */
+                I2C1::CR1::WriteACK(0);   /** NACK 第 2 字节 */
                 return;
             }
             /** 读 SR2 已清 ADDR */
@@ -408,6 +431,16 @@ public:
                 /** 写完成 */
                 I2C1::CR1::WriteSTOP(1);
                 finishComplete();
+            } else if (g_isRead && g_len == 2 && g_phase == Phase::ReadData &&
+                       g_rxbuf != nullptr) {
+                /** 两字节读：读双字节并结束 */
+                I2C1::CR1::WriteSTOP(1);
+                g_rxbuf[0] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+                g_rxbuf[1] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+                g_idx = 2;
+                I2C1::CR1::WritePOS(0);
+                I2C1::CR1::WriteACK(1);
+                finishComplete();
             }
             return;
         }
@@ -415,14 +448,17 @@ public:
         /** RxNE (Receive buffer Not Empty) */
         if (sr1 & 0x0040) {
             if (g_isRead && g_phase == Phase::ReadData) {
+                /** 两字节读由 BTF 事件统一读取，避免提前读走 DataN-1 */
+                if (g_len == 2) return;
+
                 if (g_rxbuf != nullptr && g_idx < g_len) {
                     g_rxbuf[g_idx] = static_cast<uint8_t>(I2C1::DR::ReadDR());
                     g_idx = g_idx + 1;
                     /**
-                     * 多字节读（N>1）：倒数第二字节时 NACK + STOP。
+                     * 多字节读（N>2）：倒数第二字节时 NACK + STOP。
                      * 单字节读（N=1）：STOP 已在 ADDR 事件中发送，此处无需再设。
                      */
-                    if (g_len > 1 && g_idx == g_len - 1) {
+                    if (g_len > 2 && g_idx == g_len - 1) {
                         I2C1::CR1::WriteACK(0);
                         I2C1::CR1::WriteSTOP(1);
                     }
@@ -578,8 +614,8 @@ private:
     inline static volatile uint8_t g_reg{0};
     inline static volatile size_t g_len{0};
     inline static volatile size_t g_idx{0};
-    inline static uint8_t g_txbuf[MAX_BUF]{};
-    inline static uint8_t* g_rxbuf{nullptr};
+    inline static volatile uint8_t g_txbuf[MAX_BUF]{};
+    inline static volatile uint8_t* g_rxbuf{nullptr};
     inline static bool g_initialized{false};
     inline static Callback g_completeCb{nullptr};
     inline static Callback g_errorCb{nullptr};
