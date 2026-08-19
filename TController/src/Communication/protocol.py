@@ -441,13 +441,18 @@ class ProtocolHandler:
         self.send_cmd(0x05, bytes([0x01]))
 
     def send_heartbeat(self) -> None:
-        """发送心跳帧，维持下位机看门狗（param=0x01 保持使能，复位超时计时器）。"""
-        self._reader.write(self._build_downlink(0x05, bytes([0x01])))
+        """发送心跳帧，维持下位机看门狗（带 ACK 重试，防止丢包导致误触发）。"""
+        self.send_cmd(0x05, bytes([0x01]))
 
     # ---- 带重试的命令发送 ----
 
     def _on_ack(self, cmd: int) -> None:
         if self._pending_cmd_id != cmd:
+            # 收到不匹配的 ACK，可能是重复响应或状态不同步
+            if self._pending_cmd_id is not None:
+                self._event_queue.put(
+                    _Event("error", f"收到意外 ACK 0x{cmd:02X}，期望 0x{self._pending_cmd_id:02X}")
+                )
             return
         self._ack_received = True
         self._pending_cmd = None

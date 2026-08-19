@@ -139,17 +139,8 @@ private:
                 sendAck(cmd);
                 break;
             }
-            case 0x03: { /** FreeStop: pump_id(1), 0xFF=全部 */
-                if (len < 1) { sendNak(cmd); break; }
-                uint8_t id = param[0];
-                if (id == 0xFF) { Device::PumpMotor1::stop(); Device::PumpMotor2::stop(); }
-                else if (id == 1) Device::PumpMotor1::stop();
-                else if (id == 2) Device::PumpMotor2::stop();
-                else { sendNak(cmd); break; }
-                sendAck(cmd);
-                break;
-            }
-            case 0x04: { /** AbortAll: pump_id(1), 0xFF=全部 */
+            case 0x03: /** FreeStop */
+            case 0x04: { /** AbortAll (等价于 0x03，保留用于协议兼容): pump_id(1), 0xFF=全部 */
                 if (len < 1) { sendNak(cmd); break; }
                 uint8_t id = param[0];
                 if (id == 0xFF) {
