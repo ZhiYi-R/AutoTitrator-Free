@@ -1,4 +1,4 @@
-"""滴定控制主窗口（ttkbootstrap）。"""
+"""滴定控制主窗口（ttkbootstrap）— 控制台式命令栏 + 工作流相位 + i18n。"""
 
 from __future__ import annotations
 
@@ -8,31 +8,67 @@ import tkinter as tk
 from datetime import datetime
 from enum import Enum
 from tkinter import messagebox
+from typing import Literal
 
 import numpy as np
 import openpyxl
 import ttkbootstrap as ttk
+from ttkbootstrap.dialogs import Messagebox
+
 from Communication import ProtocolHandler
 from DataProcessor import PUMP_SLOPE, EndpointDetector, steps_from_volume
 from DataProcessor import reconstruct as _reconstruct
 from DataProcessor._path import CALIBRE_PATH
-
+from gui import i18n, themes
 from gui.calibration_tab import CalibrationTab
 from gui.maintenance_tab import MaintenanceTab
 from gui.potential_widget import PotentialWidget
 from gui.results_panel import ResultsPanel
+from gui.settings import load_settings, save_settings
 from gui.spectrum_widget import SpectrumWidget
-from gui.themes import apply_theme
+from gui.themes import UI_FONT
+from gui.widgets import Card, MessageBar, PhaseStepper, StatusDot, TGauge, Tooltip
 
 
 class TitrationState(Enum):
-    IDLE = "空闲"
-    INJECTING = "进样中…"
-    TITRATING = "滴定中…"
-    DEGREE_1 = "终点 T=1"
-    TITRATING_2 = "滴定至 T=2…"
-    DONE = "完成"
-    ERROR = "错误"
+    IDLE = "idle"
+    INJECTING = "injecting"
+    TITRATING = "titrating"
+    DEGREE_1 = "degree1"
+    TITRATING_2 = "titrating2"
+    DONE = "done"
+    ERROR = "error"
+
+
+# 状态 → 芯片样式
+_CHIP_STYLE: dict[TitrationState, str] = {
+    TitrationState.IDLE: "ChipIdle",
+    TitrationState.INJECTING: "ChipRun",
+    TitrationState.TITRATING: "ChipRun",
+    TitrationState.TITRATING_2: "ChipRun",
+    TitrationState.DEGREE_1: "ChipWarn",
+    TitrationState.DONE: "ChipOk",
+    TitrationState.ERROR: "ChipErr",
+}
+
+# 状态 → 相位步进索引（ERROR 保持当前相位，仅标红）
+_PHASE_INDEX: dict[TitrationState, int] = {
+    TitrationState.IDLE: 0,
+    TitrationState.INJECTING: 1,
+    TitrationState.TITRATING: 2,
+    TitrationState.DEGREE_1: 3,
+    TitrationState.TITRATING_2: 3,
+    TitrationState.DONE: 4,
+    TitrationState.ERROR: 0,
+}
+
+_PHASES = [
+    ("ready", "phases.ready"),
+    ("injecting", "phases.injecting"),
+    ("titrating", "phases.titrating"),
+    ("detecting", "phases.detecting"),
+    ("done", "phases.done"),
+]
 
 
 # ======================================================================
@@ -46,7 +82,12 @@ class MainWindow(ttk.Frame):
       → 终点检测 T=1 → 继续 FreeRun → T=2 → 停止
     """
 
-    def __init__(self, parent: tk.Misc, **kwargs) -> None:
+    def __init__(
+        self,
+        parent: tk.Misc,
+        theme_mode: str = "system",
+        **kwargs,
+    ) -> None:
         super().__init__(parent, **kwargs)
 
         # ---- 串口通信 ----
@@ -67,6 +108,7 @@ class MainWindow(ttk.Frame):
         # ---- 滴定检测 ----
         self._detector = EndpointDetector()
         self._state = TitrationState.IDLE
+        self._phase_idx = 0
         self._endpoint_volume: float | None = None
         self._t0: float = 0.0  # 连接时刻
         self._t1_time: float = 0.0
@@ -84,10 +126,22 @@ class MainWindow(ttk.Frame):
         self._rec_ewma_v: float | None = None
 
         # ---- UI ----
+        self._theme_mode = theme_mode if theme_mode in themes.MODES else "system"
+        self._connected = False
+        self._rec_var = tk.BooleanVar(value=True)
+        self._group_captions: list[tuple[ttk.Label, str]] = []
         self._build_toolbar()
-        self._build_central()
+        # 状态栏先于中央区打包（side=bottom），确保窗口高度不足时不被挤压
         self._build_status()
+        self._build_central()
         self._load_electrodes()
+        self._bind_shortcuts()
+        i18n.subscribe(self._apply_i18n)
+        themes.subscribe(self._apply_theme)
+
+        # 初始空状态提示
+        self._spectrum_widget.set_overlay("overlay.disconnected")
+        self._potential_widget.set_overlay("overlay.disconnected")
 
         # ---- 定时器（root.after 递归调度）----
         self._running = True
@@ -100,11 +154,13 @@ class MainWindow(ttk.Frame):
 
     def _schedule_after(self, ms: int, callback) -> None:
         """安全的 after 调度：窗口关闭后不再触发。"""
+
         def _wrapper():
             if not self._running:
                 return
             callback()
             self._schedule_after(ms, callback)
+
         self.after(ms, _wrapper)
 
     def _schedule_heartbeat(self) -> None:
@@ -113,6 +169,7 @@ class MainWindow(ttk.Frame):
                 return
             self._send_heartbeat()
             self.after(1000, _heartbeat)
+
         if self._heartbeat_active:
             self.after(1000, _heartbeat)
 
@@ -120,97 +177,175 @@ class MainWindow(ttk.Frame):
     #  UI 构建
     # ================================================================
 
-    def _build_toolbar(self) -> None:
-        tb = ttk.Frame(self)
-        tb.pack(fill="x", padx=4, pady=2)
+    def _group(
+        self,
+        parent: tk.Misc,
+        caption_key: str,
+        side: Literal["left", "right", "top", "bottom"] = "left",
+        padx: tuple[int, int] = (0, 8),
+    ) -> ttk.Frame:
+        """带标题的工具栏分组卡片（已入包），返回控件行容器。"""
+        card = Card(parent, tone="surface")
+        card.pack(side=side, padx=padx)
+        body = ttk.Frame(card, style="Toolbar.TFrame", padding=(10, 4))
+        body.pack(fill="both", expand=True)
+        cap = ttk.Label(body, text=i18n.tr(caption_key), style="GroupCaption.TLabel")
+        cap.pack(anchor="w")
+        row = ttk.Frame(body, style="Toolbar.TFrame")
+        row.pack(anchor="w", pady=(2, 3))
+        self._group_captions.append((cap, caption_key))
+        return row
 
-        # 串口
-        ttk.Label(tb, text="端口:").pack(side="left", padx=(0, 4))
-        self._port_cb = ttk.Combobox(tb, state="readonly", width=26)
+    def _build_toolbar(self) -> None:
+        tb = ttk.Frame(self, style="Toolbar.TFrame", padding=(8, 6))
+        tb.pack(fill="x")
+
+        # ---- 连接组 ----
+        conn_row = self._group(tb, "toolbar.group_conn")
+
+        self._status_dot = StatusDot(conn_row)
+        self._status_dot.pack(side="left", padx=(0, 4))
+
+        self._port_label = ttk.Label(conn_row, text=i18n.tr("toolbar.port"), style="GroupLabel.TLabel")
+        self._port_label.pack(side="left", padx=(0, 4))
+        self._port_cb = ttk.Combobox(conn_row, state="readonly", width=16)
         self._port_cb.pack(side="left")
         self._port_data: dict[str, str] = {}  # 显示文本 → 设备路径
 
-        self._more_btn = ttk.Menubutton(tb, text="更多", width=6)
+        self._more_btn = ttk.Menubutton(
+            conn_row, text=i18n.tr("toolbar.more"), width=5, bootstyle="outline"
+        )
         self._more_menu = tk.Menu(self._more_btn, tearoff=0)
         self._more_btn["menu"] = self._more_menu
         self._more_btn.pack(side="left", padx=4)
 
-        ttk.Label(tb, text="波特率:").pack(side="left", padx=(8, 4))
+        self._baud_label = ttk.Label(conn_row, text=i18n.tr("toolbar.baud"), style="GroupLabel.TLabel")
+        self._baud_label.pack(side="left", padx=(8, 4))
         self._baud_cb = ttk.Combobox(
-            tb,
+            conn_row,
             values=["9600", "19200", "38400", "57600", "115200", "230400"],
             state="readonly",
-            width=8,
+            width=6,
         )
-        self._baud_cb.set("115200")
+        self._baud_cb.set(str(load_settings()["baud"]))
         self._baud_cb.pack(side="left")
 
-        self._conn_btn = ttk.Button(tb, text="连接", command=self._toggle_connect)
-        self._conn_btn.pack(side="left", padx=8)
+        self._conn_btn = ttk.Button(
+            conn_row,
+            text=i18n.tr("toolbar.connect"),
+            bootstyle="primary",
+            command=self._toggle_connect,
+        )
+        self._conn_btn.pack(side="left", padx=(8, 0))
 
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=4)
+        # ---- 滴定控制组 ----
+        run_row = self._group(tb, "toolbar.group_run")
 
-        ttk.Label(tb, text="进样体积(mL):").pack(side="left", padx=(0, 4))
+        self._vol_label = ttk.Label(
+            run_row, text=i18n.tr("toolbar.sample_volume"), style="GroupLabel.TLabel"
+        )
+        self._vol_label.pack(side="left", padx=(0, 4))
         self._vol_spin = ttk.Spinbox(
-            tb, from_=1.0, to=999.0, increment=0.1, format="%.1f", width=6
+            run_row, from_=1.0, to=999.0, increment=0.1, format="%.1f", width=5
         )
         self._vol_spin.set(5.0)
         self._vol_spin.pack(side="left")
 
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=4)
-
         self._start_btn = ttk.Button(
-            tb, text="开始滴定", command=self._start_titration
+            run_row,
+            text=i18n.tr("toolbar.start"),
+            bootstyle="success",
+            padding=(10, 4),
+            command=self._start_titration,
         )
-        self._start_btn.pack(side="left", padx=4)
+        self._start_btn.pack(side="left", padx=(10, 4))
         self._start_btn.state(["disabled"])
+        Tooltip(self._start_btn, lambda: i18n.tr("tooltip.start"))
 
         self._manual_stop_btn = ttk.Button(
-            tb, text="停止滴定", command=self._manual_stop
+            run_row,
+            text=i18n.tr("toolbar.stop"),
+            bootstyle="outline",
+            command=self._manual_stop,
         )
-        self._manual_stop_btn.pack(side="left", padx=4)
+        self._manual_stop_btn.pack(side="left", padx=(0, 6))
         self._manual_stop_btn.state(["disabled"])
 
-        self._stop_btn = ttk.Button(tb, text="急停", command=self._emergency_stop)
-        self._stop_btn.pack(side="left", padx=4)
-        self._stop_btn.state(["disabled"])
+        # ---- 设备组 ----
+        dev_row = self._group(tb, "toolbar.group_dev", padx=(0, 0))
 
         self._reset_btn = ttk.Button(
-            tb, text="复位MCU", command=self._reset_mcu
+            dev_row,
+            text=i18n.tr("toolbar.reset_mcu"),
+            bootstyle="outline",
+            command=self._reset_mcu,
         )
-        self._reset_btn.pack(side="left", padx=4)
+        self._reset_btn.pack(side="left")
 
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=4)
-
-        self._rec_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            tb,
-            text="记录数据",
-            variable=self._rec_var,
-            command=self._on_recording_toggled,
-        ).pack(side="left")
-
-        ttk.Separator(tb, orient="vertical").pack(side="left", fill="y", padx=4)
-
-        ttk.Label(tb, text="主题:").pack(side="left", padx=(0, 4))
-        self._theme_cb = ttk.Combobox(
-            tb,
-            values=["浅色", "深色", "跟随系统"],
-            state="readonly",
-            width=10,
+        # ---- 急停区（右端独立危险区）----
+        estop_zone = Card(tb, tone="danger")
+        estop_zone.pack(side="right", padx=(8, 0))
+        estop_body = ttk.Frame(estop_zone, style="EstopZoneBody.TFrame", padding=(12, 4))
+        estop_body.pack(fill="both", expand=True)
+        self._estop_cap = ttk.Label(
+            estop_body, text=i18n.tr("toolbar.emergency_stop"), style="EstopZone.TLabel"
         )
-        self._theme_cb.set("跟随系统")
-        self._theme_cb.bind(
-            "<<ComboboxSelected>>", self._on_theme_changed
+        self._estop_cap.pack(anchor="w")
+        self._stop_btn = ttk.Button(
+            estop_body,
+            text=i18n.tr("toolbar.emergency_stop"),
+            bootstyle="danger",
+            padding=(14, 6),
+            command=self._emergency_stop,
         )
+        self._stop_btn.pack(pady=(1, 3))
+        self._stop_btn.state(["disabled"])
+        Tooltip(self._stop_btn, lambda: i18n.tr("tooltip.estop"))
+
+        # ---- 显示组（语言 / 主题）----
+        view_row = self._group(tb, "toolbar.group_view", side="right", padx=(8, 0))
+
+        self._lang_cb = ttk.Combobox(view_row, state="readonly", width=8)
+        self._lang_cb.pack(side="left", padx=(0, 4))
+        self._rebuild_lang_combo()
+        self._lang_cb.bind("<<ComboboxSelected>>", self._on_lang_changed)
+
+        self._theme_cb = ttk.Combobox(view_row, state="readonly", width=8)
         self._theme_cb.pack(side="left")
+        self._rebuild_theme_combo()
+        self._theme_cb.bind("<<ComboboxSelected>>", self._on_theme_changed)
+
+    def _rebuild_theme_combo(self) -> None:
+        """按当前语言重建主题下拉框（保持选中项）。"""
+        keys = {"theme.light": "light", "theme.dark": "dark", "theme.system": "system"}
+        self._theme_display_to_mode = {i18n.tr(k): m for k, m in keys.items()}
+        self._theme_cb["values"] = list(self._theme_display_to_mode.keys())
+        for disp, mode in self._theme_display_to_mode.items():
+            if mode == self._theme_mode:
+                self._theme_cb.set(disp)
+                break
+
+    def _rebuild_lang_combo(self) -> None:
+        """重建语言下拉框（显示各语言自称）。"""
+        self._lang_display_to_code = {name: code for code, name in i18n.LANGS.items()}
+        self._lang_cb["values"] = list(self._lang_display_to_code.keys())
+        self._lang_cb.set(i18n.LANGS[i18n.current_language()])
 
     def _build_central(self) -> None:
         self._main_tabs = ttk.Notebook(self)
-        self._main_tabs.pack(fill="both", expand=True, padx=2, pady=2)
+        self._main_tabs.pack(fill="both", expand=True, padx=4, pady=(2, 0))
 
         # ---- 滴定标签页 ----
         titrate_tab = ttk.Frame(self._main_tabs)
+
+        # 工作流相位 + 滴定度规
+        top = ttk.Frame(titrate_tab)
+        top.pack(fill="x", padx=8)
+        self._stepper = PhaseStepper(top, _PHASES)
+        self._stepper.pack(side="left", fill="x", expand=True)
+        ttk.Separator(top, orient="vertical").pack(side="left", fill="y", padx=10, pady=8)
+        self._tgauge = TGauge(top, width=340)
+        self._tgauge.pack(side="right", padx=(6, 4))
 
         paned = tk.PanedWindow(
             titrate_tab, orient="horizontal", sashwidth=4
@@ -228,29 +363,107 @@ class MainWindow(ttk.Frame):
 
         paned.add(left, minsize=400, stretch="always")
 
-        self._results_panel = ResultsPanel(paned)
-        paned.add(self._results_panel, minsize=240, stretch="never")
+        self._results_panel = ResultsPanel(
+            paned,
+            record_var=self._rec_var,
+            record_command=self._on_recording_toggled,
+        )
+        paned.add(self._results_panel, minsize=260, stretch="never")
 
-        self._main_tabs.add(titrate_tab, text="滴定")
+        self._main_tabs.add(titrate_tab, text=i18n.tr("tabs.titration"))
 
         # ---- 校准标签页 ----
         self._calib_tab = CalibrationTab(self._com, parent=self._main_tabs)
-        self._main_tabs.add(self._calib_tab, text="校准")
+        self._main_tabs.add(self._calib_tab, text=i18n.tr("tabs.calibration"))
 
         self._maintenance_tab = MaintenanceTab(
             self._com, parent=self._main_tabs
         )
-        self._main_tabs.add(self._maintenance_tab, text="维护")
+        self._main_tabs.add(self._maintenance_tab, text=i18n.tr("tabs.maintenance"))
+        self._maintenance_tab.set_connected(False)
 
     def _build_status(self) -> None:
-        sb = ttk.Frame(self)
-        sb.pack(fill="x", padx=4, pady=2)
+        sb = ttk.Frame(self, style="Statusbar.TFrame", padding=(10, 5))
+        sb.pack(fill="x", side="bottom")
 
-        self._state_label = ttk.Label(sb, text="空闲", font=("", 9, "bold"))
-        self._state_label.pack(side="left")
+        self._chip = ttk.Label(sb, style="ChipIdle.TLabel", text=i18n.tr("states.idle"))
+        self._chip.pack(side="left")
 
-        self._info_label = ttk.Label(sb, text="", anchor="e")
-        self._info_label.pack(side="right")
+        self._msg = MessageBar(sb)
+        self._msg.pack(side="left", fill="x", expand=True, padx=(12, 0))
+
+        self._activity = ttk.Label(sb, text="", style="Status.TLabel", font=(UI_FONT, 8))
+        self._activity.pack(side="right", padx=(12, 10))
+
+        self._conn_dot = StatusDot(sb)
+        self._conn_dot.pack(side="right", padx=(0, 4))
+        self._conn_label = ttk.Label(sb, text="", style="Conn.TLabel")
+        self._conn_label.pack(side="right")
+        self._update_conn_label()
+
+    def _bind_shortcuts(self) -> None:
+        """全局快捷键：Esc 急停，F5 开始滴定。"""
+        top = self.winfo_toplevel()
+        top.bind("<Escape>", lambda _e: self._shortcut_estop())
+        top.bind("<F5>", lambda _e: self._shortcut_start())
+
+    def _shortcut_estop(self) -> None:
+        if self._connected:
+            self._emergency_stop()
+
+    def _shortcut_start(self) -> None:
+        if "disabled" not in self._start_btn.state():
+            self._start_titration()
+
+    # ---- i18n / 主题刷新 ----
+
+    def _apply_i18n(self) -> None:
+        self.winfo_toplevel().title(i18n.tr("app.title"))
+        for cap, key in self._group_captions:
+            cap.config(text=i18n.tr(key))
+        self._port_label.config(text=i18n.tr("toolbar.port"))
+        self._baud_label.config(text=i18n.tr("toolbar.baud"))
+        self._more_btn.config(text=i18n.tr("toolbar.more"))
+        self._conn_btn.config(
+            text=i18n.tr("toolbar.disconnect" if self._connected else "toolbar.connect")
+        )
+        self._vol_label.config(text=i18n.tr("toolbar.sample_volume"))
+        self._start_btn.config(text=i18n.tr("toolbar.start"))
+        self._manual_stop_btn.config(text=i18n.tr("toolbar.stop"))
+        self._stop_btn.config(text=i18n.tr("toolbar.emergency_stop"))
+        self._estop_cap.config(text=i18n.tr("toolbar.emergency_stop"))
+        self._reset_btn.config(text=i18n.tr("toolbar.reset_mcu"))
+        self._main_tabs.tab(0, text=i18n.tr("tabs.titration"))
+        self._main_tabs.tab(1, text=i18n.tr("tabs.calibration"))
+        self._main_tabs.tab(2, text=i18n.tr("tabs.maintenance"))
+        # 状态芯片与连接标签（状态枚举名来自 i18n）
+        self._set_chip(i18n.tr(f"states.{self._state.value}"), _CHIP_STYLE[self._state])
+        self._update_conn_label()
+        # 下拉框选项随语言重建
+        self._rebuild_theme_combo()
+        self._rebuild_lang_combo()
+
+    def _apply_theme(self) -> None:
+        self._update_conn_label()
+        themes.set_native_titlebar(themes.current_key() == "dark", self.winfo_toplevel())
+
+    def _set_chip(self, text: str, style: str) -> None:
+        self._chip.config(text=text, style=f"{style}.TLabel")
+
+    def _update_conn_label(self) -> None:
+        t = themes.current_tokens()
+        if self._connected:
+            disp = self._port_cb.get()
+            port = self._port_data.get(disp, disp)
+            self._conn_label.config(
+                text=port if port else i18n.tr("conn.connected"), foreground=t.fg
+            )
+            self._conn_dot.set_state("ok")
+            self._status_dot.set_state("ok")
+        else:
+            self._conn_label.config(text=i18n.tr("conn.disconnected"), foreground=t.fg_muted)
+            self._conn_dot.set_state("off")
+            self._status_dot.set_state("off")
 
     # ================================================================
     #  串口连接
@@ -274,7 +487,12 @@ class MainWindow(ttk.Frame):
             if current in values:
                 self._port_cb.set(current)
             else:
-                self._port_cb.set(values[0])
+                # 优先恢复上次连接的端口
+                last = load_settings()["last_port"]
+                restored = next(
+                    (lbl for lbl, dev in self._port_data.items() if dev == last), None
+                )
+                self._port_cb.set(restored or values[0])
 
         # 无 vid 的端口放入"更多"菜单
         self._more_menu.delete(0, "end")
@@ -306,36 +524,52 @@ class MainWindow(ttk.Frame):
             disp = self._port_cb.get()
             port = self._port_data.get(disp, disp)
             if not port:
-                messagebox.showwarning("提示", "请选择串口端口")
+                messagebox.showwarning(i18n.tr("conn.hint"), i18n.tr("conn.select_port"))
                 return
             self._com.reconfigure(port, int(self._baud_cb.get()))
             self._com.connect()
 
     def _on_connected(self, _data: object = None) -> None:
-        self._conn_btn.config(text="断开")
+        self._connected = True
+        self._conn_btn.config(
+            text=i18n.tr("toolbar.disconnect"), bootstyle="outline"
+        )
         self._t0 = time.monotonic()
-        self._state_label.config(text="已连接", foreground="#27ae60")
+        self._update_conn_label()
         self._start_btn.state(["!disabled"])
+        self._stop_btn.state(["!disabled"])  # 急停：连接后始终可用
         self._com.enable_watchdog()
         self._heartbeat_active = True
         self._schedule_heartbeat()
         self._maintenance_tab.set_connected(True)
+        # 记住端口，恢复空状态
+        disp = self._port_cb.get()
+        port = self._port_data.get(disp, disp)
+        save_settings(last_port=port, baud=int(self._baud_cb.get()))
+        self._spectrum_widget.set_overlay("overlay.waiting")
+        self._potential_widget.set_overlay("overlay.waiting")
+        self._msg.show("success", i18n.tr("msg.connected", port=port), sticky=True)
 
     def _on_disconnected(self, _data: object = None) -> None:
-        self._conn_btn.config(text="连接")
-        self._state_label.config(text="未连接", foreground="")
+        self._connected = False
+        self._conn_btn.config(text=i18n.tr("toolbar.connect"), bootstyle="primary")
+        self._update_conn_label()
         self._start_btn.state(["disabled"])
         self._stop_btn.state(["disabled"])
         self._set_state(TitrationState.IDLE)
         self._heartbeat_active = False
         self._maintenance_tab.set_connected(False)
+        self._spectrum_widget.set_overlay("overlay.disconnected")
+        self._potential_widget.set_overlay("overlay.disconnected")
+        self._tgauge.set_value(None)
+        self._msg.show("warn", i18n.tr("msg.disconnected"), sticky=True)
 
     def _on_com_error(self, msg: str) -> None:
-        self._state_label.config(text=f"错误: {msg}", foreground="#e74c3c")
+        self._msg.show("error", i18n.tr("status.error_fmt", msg=msg), sticky=True)
         self._set_state(TitrationState.ERROR)
 
     def _on_nak(self, _data: object = None) -> None:
-        self._info_label.config(text="NAK")
+        self._activity.config(text=i18n.tr("status.nak"))
 
     def _send_heartbeat(self) -> None:
         if self._com.is_open:
@@ -381,7 +615,8 @@ class MainWindow(ttk.Frame):
         # 更新 Pump2 体积（基于固件实际步数）
         old_vol = self._pump2_volume
         self._pump2_volume = PUMP_SLOPE * pump2_pos
-        # 调试：泵体积变化时更新 info
+        self._update_gauge()
+        # 泵体积变化时更新活动区
         if self._state in (
             TitrationState.TITRATING,
             TitrationState.TITRATING_2,
@@ -389,8 +624,12 @@ class MainWindow(ttk.Frame):
         ):
             diff = self._pump2_volume - old_vol
             if diff > 0.001:
-                self._info_label.config(
-                    text=f"泵2 vol={self._pump2_volume:.4f} mL  +{diff:.4f}"
+                self._activity.config(
+                    text=i18n.tr(
+                        "status.pump2_vol",
+                        vol=f"{self._pump2_volume:.4f}",
+                        diff=f"{diff:.4f}",
+                    )
                 )
         # 缓存用于泵 report 间平均
         self._adc_buffer.append(raw)
@@ -415,6 +654,7 @@ class MainWindow(ttk.Frame):
 
     def _on_pump2_progress(self, pos: int) -> None:
         self._pump2_volume = PUMP_SLOPE * pos
+        self._update_gauge()
         self._flush_adc_buffer()
 
     def _flush_adc_buffer(self) -> None:
@@ -439,9 +679,10 @@ class MainWindow(ttk.Frame):
             self._rec_potential.append((t, v, self._rec_ewma_v, vol))
         self._adc_buffer.clear()
 
-    def _on_pump_done(self, position: int) -> None:
-        self._info_label.config(text=f"泵完成 pos={position}")
-        if self._state == TitrationState.INJECTING:
+    def _on_pump_done(self, data: tuple) -> None:
+        pump_id, position = data
+        self._activity.config(text=i18n.tr("status.pump_done", id=pump_id, pos=position))
+        if pump_id == 1 and self._state == TitrationState.INJECTING:
             # 进样完成 -> 隐藏进度条，清空进样数据，启动滴定泵
             self._results_panel.hide_inject_progress()
             self._potential_widget.reset()
@@ -453,23 +694,41 @@ class MainWindow(ttk.Frame):
     #  滴定控制
     # ================================================================
 
+    def _update_gauge(self) -> None:
+        if self._endpoint_volume and self._state in (
+            TitrationState.TITRATING,
+            TitrationState.DEGREE_1,
+            TitrationState.TITRATING_2,
+            TitrationState.DONE,
+        ):
+            self._tgauge.set_value(self._pump2_volume / self._endpoint_volume)
+        else:
+            self._tgauge.set_value(None)
+
     def _set_state(self, state: TitrationState) -> None:
         self._state = state
-        self._state_label.config(text=state.value)
+        self._set_chip(i18n.tr(f"states.{state.value}"), _CHIP_STYLE[state])
+        if state is TitrationState.ERROR:
+            self._stepper.set_phase(self._phase_idx, error=True)
+        else:
+            self._phase_idx = _PHASE_INDEX[state]
+            self._stepper.set_phase(
+                self._phase_idx, done_all=state is TitrationState.DONE
+            )
 
     def _start_titration(self) -> None:
         if not self._com.is_open:
-            messagebox.showwarning("提示", "请先连接串口")
+            messagebox.showwarning(i18n.tr("conn.hint"), i18n.tr("conn.connect_first"))
             return
 
-        # 复位检测器
-        # 复位所有数据
+        # 复位检测器与所有数据
         self._detector.reset()
         self._endpoint_volume = None
         self._t1_time = 0.0
         self._potential_widget.set_titrating(False)
         self._potential_widget.reset()
         self._results_panel.reset_endpoint()
+        self._tgauge.set_value(None)
         self._adc_counter = 0
         # AMPD 在 T=2 统一执行，无需中间标记
         self._pump1_volume = 0.0
@@ -478,7 +737,7 @@ class MainWindow(ttk.Frame):
             vol_ml = float(self._vol_spin.get())
         except (ValueError, tk.TclError):
             vol_ml = 5.0
-        self._info_label.config(text=f"进样 {vol_ml:.1f} mL …")
+        self._msg.show("info", i18n.tr("status.injecting", vol=f"{vol_ml:.1f}"), sticky=True)
         self._results_panel.set_sample_volume(vol_ml)
         # 进样体积 → MaxCount 步数（标定公式换算）
         steps = steps_from_volume(vol_ml)
@@ -487,24 +746,22 @@ class MainWindow(ttk.Frame):
         self._com.send_maxcount(1, steps)
         self._set_state(TitrationState.INJECTING)
         self._potential_widget.set_titrating(True)
-        self._stop_btn.state(["!disabled"])
         self._manual_stop_btn.state(["!disabled"])
 
     def _emergency_stop(self) -> None:
         self._com.send_reset()
         self._set_state(TitrationState.IDLE)
         self._start_btn.state(["!disabled"])
-        self._stop_btn.state(["disabled"])
         self._manual_stop_btn.state(["disabled"])
-        self._info_label.config(text="已紧急停止，MCU 复位")
+        self._msg.show("warn", i18n.tr("status.emergency_stopped"), sticky=True)
         self._potential_widget.set_titrating(False)
         self._potential_widget.reset()
         self._results_panel.reset_endpoint()
+        self._tgauge.set_value(None)
 
     def _manual_stop(self) -> None:
         """手动停止滴定：停泵、精修终点、保存数据，不复位 MCU。"""
         self._manual_stop_btn.state(["disabled"])
-        self._stop_btn.state(["disabled"])
 
         # 停止滴定泵
         self._com.send_frestop(2)
@@ -518,9 +775,15 @@ class MainWindow(ttk.Frame):
                 self._potential_widget.set_endpoint(ref)
 
             self._potential_widget.set_titrating(False)
-            self._state_label.config(
-                text=f"手动停止 @ {self._endpoint_volume:.4f} mL",
-                foreground="#e67e22",
+            self._set_state(TitrationState.DONE)
+            self._set_chip(
+                i18n.tr("status.manual_stopped_at", vol=f"{self._endpoint_volume:.4f}"),
+                "ChipWarn",
+            )
+            self._msg.show(
+                "warn",
+                i18n.tr("status.manual_stopped_at", vol=f"{self._endpoint_volume:.4f}"),
+                sticky=True,
             )
 
             # 保存数据
@@ -529,26 +792,34 @@ class MainWindow(ttk.Frame):
                 self._on_titration_complete(result)
         else:
             self._potential_widget.set_titrating(False)
-            self._state_label.config(text="手动停止")
+            self._set_state(TitrationState.DONE)
+            self._set_chip(i18n.tr("status.manual_stopped"), "ChipWarn")
+            self._msg.show("warn", i18n.tr("status.manual_stopped"), sticky=True)
 
-        self._set_state(TitrationState.DONE)
         self._start_btn.state(["!disabled"])
-        self._info_label.config(text="已手动停止")
 
     def _reset_mcu(self) -> None:
-        """复位 MCU 并重置上位机状态。"""
+        """复位 MCU 并重置上位机状态（需确认）。"""
+        answer = Messagebox.yesno(
+            i18n.tr("confirm.reset_msg"),
+            i18n.tr("confirm.reset_title"),
+            parent=self.winfo_toplevel(),
+            alert=True,
+        )
+        if answer != "Yes":
+            return
         self._com.send_reset()
         self._detector.reset()
         self._set_state(TitrationState.IDLE)
         self._start_btn.state(["!disabled"])
-        self._stop_btn.state(["disabled"])
         self._manual_stop_btn.state(["disabled"])
         self._potential_widget.set_titrating(False)
         self._potential_widget.reset()
         self._results_panel.reset_endpoint()
         self._endpoint_volume = None
         self._t1_time = 0.0
-        self._info_label.config(text="已复位（MCU + 上位机）")
+        self._tgauge.set_value(None)
+        self._msg.show("info", i18n.tr("status.reset_done"), sticky=True)
 
     # ================================================================
     #  定时任务
@@ -572,8 +843,8 @@ class MainWindow(ttk.Frame):
             return
 
         vol = result["volume"]
-        self._info_label.config(
-            text=f"检测: {vol:.3f} mL, 置信度={result['confidence']}"
+        self._activity.config(
+            text=i18n.tr("status.detect", vol=f"{vol:.3f}", conf=result["confidence"])
         )
 
         if self._state == TitrationState.TITRATING:
@@ -582,19 +853,23 @@ class MainWindow(ttk.Frame):
             self._potential_widget.set_endpoint(vol)
             self._results_panel.set_endpoint(vol)
             self._set_state(TitrationState.DEGREE_1)
-            self._state_label.config(
-                text=f"终点 T=1 @ {vol:.3f} mL", foreground="#e67e22"
+            self._set_chip(i18n.tr("status.endpoint_t1", vol=f"{vol:.3f}"), "ChipWarn")
+            self._msg.show(
+                "warn", i18n.tr("status.endpoint_t1", vol=f"{vol:.3f}"), sticky=True
             )
 
         elif self._state in (TitrationState.DEGREE_1, TitrationState.TITRATING_2):
             # 显示当前滴定进度
             if self._endpoint_volume:
                 t_val = self._pump2_volume / self._endpoint_volume
-                self._state_label.config(
-                    text=(
-                        f"T=1 @ {self._endpoint_volume:.3f} mL | "
-                        f"T={t_val:.2f}  vol={self._pump2_volume:.3f} mL"
-                    )
+                self._set_chip(
+                    i18n.tr(
+                        "status.progress",
+                        ep=f"{self._endpoint_volume:.3f}",
+                        t=f"{t_val:.2f}",
+                        vol=f"{self._pump2_volume:.3f}",
+                    ),
+                    "ChipRun",
                 )
             # 继续滴定到 T=2（用实际累积体积）
             if (
@@ -610,17 +885,45 @@ class MainWindow(ttk.Frame):
                     self._potential_widget.set_endpoint(ref)
                 self._set_state(TitrationState.DONE)
                 self._potential_widget.set_titrating(False)
-                self._state_label.config(
-                    text=f"终点: {self._endpoint_volume:.4f} mL",
-                    foreground="#27ae60",
+                self._set_chip(
+                    i18n.tr("status.endpoint_final", vol=f"{self._endpoint_volume:.4f}"),
+                    "ChipOk",
+                )
+                self._msg.show(
+                    "success",
+                    i18n.tr("status.endpoint_final", vol=f"{self._endpoint_volume:.4f}"),
+                    sticky=True,
                 )
                 self._start_btn.state(["!disabled"])
-                self._stop_btn.state(["disabled"])
                 self._manual_stop_btn.state(["disabled"])
                 self._on_titration_complete(result)
             else:
                 if self._state == TitrationState.DEGREE_1:
                     self._set_state(TitrationState.TITRATING_2)
+
+    # ================================================================
+    #  语言 / 主题切换
+    # ================================================================
+
+    def _on_lang_changed(self, _event: object = None) -> None:
+        code = self._lang_display_to_code.get(self._lang_cb.get())
+        if code and code != i18n.current_language():
+            save_settings(language=code)
+            i18n.set_language(code)
+
+    def _on_theme_changed(self, _event: object = None) -> None:
+        mode = self._theme_display_to_mode.get(self._theme_cb.get(), "system")
+        self._theme_mode = mode
+        save_settings(theme_mode=mode)
+        themes.apply_theme(mode, plots=self._theme_plots())
+
+    def _theme_plots(self) -> list:
+        plots = [
+            self._spectrum_widget,
+            self._potential_widget,
+        ]
+        plots.extend(self._calib_tab.plots)
+        return [p for p in plots if p is not None]
 
     # ================================================================
     #  数据导出
@@ -727,13 +1030,14 @@ class MainWindow(ttk.Frame):
             ws4.append(["Refined Endpoint (mL)", round(self._endpoint_volume, 4)])
 
         wb.save(filepath)
-        self._info_label.config(text=f"数据已导出: {filename}")
+        self._msg.show("success", i18n.tr("status.exported", file=filename))
 
     # ================================================================
 
     def _on_recording_toggled(self) -> None:
         on = self._rec_var.get()
         self._recording = on
+        save_settings(record=on)
         if on:
             self._rec_spectral.clear()
             self._rec_recon.clear()
@@ -741,22 +1045,9 @@ class MainWindow(ttk.Frame):
             self._rec_potential.clear()
             self._rec_raw_adc.clear()
             self._rec_ewma_v = None
-            self._info_label.config(text="数据记录已开始")
+            self._msg.show("info", i18n.tr("status.recording_on"))
         else:
-            self._info_label.config(text="数据记录已停止")
-
-    def _theme_plots(self) -> list:
-        plots = [
-            self._spectrum_widget,
-            self._potential_widget,
-        ]
-        plots.extend(self._calib_tab.plots)
-        return [p for p in plots if p is not None]
-
-    def _on_theme_changed(self, _event: object = None) -> None:
-        mode_map = {"浅色": "light", "深色": "dark", "跟随系统": "system"}
-        mode = mode_map.get(self._theme_cb.get(), "system")
-        apply_theme(mode, plots=self._theme_plots())
+            self._msg.show("info", i18n.tr("status.recording_off"))
 
     # ---- 电极选择 ----
 
@@ -797,3 +1088,6 @@ class MainWindow(ttk.Frame):
         if self._com.is_open:
             self._com.send_reset()
             self._com.shutdown()
+
+
+__all__ = ["MainWindow", "TitrationState"]

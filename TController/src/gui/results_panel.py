@@ -1,103 +1,199 @@
-"""滴定计算结果面板（ttkbootstrap）。"""
+"""滴定计算结果面板（ttkbootstrap）— KPI 卡片式结果展示。"""
 
 from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Callable
-from tkinter import font as tkfont
 
 import ttkbootstrap as ttk
 
+from gui import i18n
+from gui.themes import MONO_FONT
+from gui.widgets import Card
+
 
 class ResultsPanel(ttk.Frame):
-    """右侧计算面板：化学计量数输入 + 终点体积/浓度显示 + 进样进度。"""
+    """右侧计算面板：参数输入 + 进样进度 + KPI 结果卡片。"""
 
-    def __init__(self, parent: tk.Misc, **kwargs) -> None:
+    def __init__(
+        self,
+        parent: tk.Misc,
+        record_var: tk.BooleanVar | None = None,
+        record_command=None,
+        **kwargs,
+    ) -> None:
         super().__init__(parent, **kwargs)
-        self._maxwidth = 240
 
         layout = ttk.Frame(self)
-        layout.pack(fill="both", expand=True, padx=8, pady=8)
+        layout.pack(fill="both", expand=True, padx=10, pady=10)
 
-        title = ttk.Label(layout, text="滴定计算", font=("", 11, "bold"))
-        title.pack(anchor="w")
+        # ---- 标题行：标题 + 记录开关 ----
+        title_row = ttk.Frame(layout)
+        title_row.pack(fill="x", pady=(0, 6))
+        self._title = ttk.Label(
+            title_row, text=i18n.tr("results.title"), style="Section.TLabel"
+        )
+        self._title.pack(side="left")
+        if record_var is not None:
+            self._rec_cb = ttk.Checkbutton(
+                title_row,
+                text=i18n.tr("toolbar.record"),
+                variable=record_var,
+                command=record_command,
+            )
+            self._rec_cb.pack(side="right")
+        else:
+            self._rec_cb = None
 
         # ---- 电极选择 ----
+        self._electrode_label = ttk.Label(layout, text=i18n.tr("results.electrode"), style="Muted.TLabel")
+        self._electrode_label.pack(anchor="w")
         self._electrode_combo = ttk.Combobox(layout, state="readonly")
-        self._electrode_combo.pack(fill="x", pady=(8, 4))
+        self._electrode_combo.pack(fill="x", pady=(2, 8))
         self._electrode_combo.bind("<<ComboboxSelected>>", self._on_combo_changed)
         self._electrode_data: list[tuple] = []
-        self._electrode_values: list[str] = []  # 显示文本
-        self._electrode_map: dict[str, tuple | None] = {}  # 显示文本 → data
+        self._electrode_values: list[str] = []
+        self._electrode_map: dict[str, tuple | None] = {}
         self._on_electrode_cb: Callable[[object], None] | None = None
 
         # ---- 化学计量数 ----
-        stoich_group = ttk.LabelFrame(layout, text="化学计量数")
-        stoich_group.pack(fill="x", pady=4)
+        self._stoich_group = ttk.LabelFrame(layout, text=i18n.tr("results.stoich"))
+        self._stoich_group.pack(fill="x", pady=(0, 6))
+        stoich_inner = ttk.Frame(self._stoich_group, padding=(8, 6))
+        stoich_inner.pack(fill="both", expand=True)
 
-        self._n_std = self._make_spin(stoich_group, 0.1, 100.0, 1.0, 0.1, 1)
-        self._add_form_row(stoich_group, "标准液 (n₁):", self._n_std)
+        self._n_std = self._make_spin(stoich_inner, 0.1, 100.0, 1.0, 0.1, 1)
+        self._n_std_label = self._add_form_row(stoich_inner, i18n.tr("results.n_std"), self._n_std)
 
-        self._n_analyte = self._make_spin(stoich_group, 0.1, 100.0, 1.0, 0.1, 1)
-        self._add_form_row(stoich_group, "待测液 (n₂):", self._n_analyte)
+        self._n_analyte = self._make_spin(stoich_inner, 0.1, 100.0, 1.0, 0.1, 1)
+        self._n_analyte_label = self._add_form_row(
+            stoich_inner, i18n.tr("results.n_analyte"), self._n_analyte
+        )
 
         # ---- 标准液浓度 ----
-        conc_group = ttk.LabelFrame(layout, text="标准液浓度")
-        conc_group.pack(fill="x", pady=4)
+        self._conc_group = ttk.LabelFrame(layout, text=i18n.tr("results.conc"))
+        self._conc_group.pack(fill="x", pady=(0, 6))
+        conc_inner = ttk.Frame(self._conc_group, padding=(8, 6))
+        conc_inner.pack(fill="both", expand=True)
 
-        self._c_std = self._make_spin(conc_group, 0.0001, 100.0, 0.1, 0.01, 4)
-        self._add_form_row(conc_group, "C₁ (mol/L):", self._c_std)
+        self._c_std = self._make_spin(conc_inner, 0.0001, 100.0, 0.1, 0.01, 4)
+        self._c_std_label = self._add_form_row(conc_inner, i18n.tr("results.c_std"), self._c_std)
 
         # ---- 待测液 ----
-        sample_group = ttk.LabelFrame(layout, text="待测液")
-        sample_group.pack(fill="x", pady=4)
+        self._sample_group = ttk.LabelFrame(layout, text=i18n.tr("results.sample"))
+        self._sample_group.pack(fill="x", pady=(0, 6))
+        sample_inner = ttk.Frame(self._sample_group, padding=(8, 6))
+        sample_inner.pack(fill="both", expand=True)
 
-        self._v_sample_label = ttk.Label(sample_group, text="—", font=("monospace", 10))
-        self._add_form_row(sample_group, "取样体积 (mL):", self._v_sample_label)
+        self._v_sample_label = ttk.Label(
+            sample_inner, text="—", font=(MONO_FONT, 10)
+        )
+        self._v_sample_rowlabel = self._add_form_row(
+            sample_inner, i18n.tr("results.sample_volume"), self._v_sample_label
+        )
 
-        self._v_now_label = ttk.Label(sample_group, text="— V", font=("monospace", 10))
-        self._add_form_row(sample_group, "当前电压:", self._v_now_label)
+        self._v_now_label = ttk.Label(
+            sample_inner, text="— V", font=(MONO_FONT, 10)
+        )
+        self._v_now_rowlabel = self._add_form_row(
+            sample_inner, i18n.tr("results.current_voltage"), self._v_now_label
+        )
 
-        # ---- 进样进度 ----
-        self._inject_group = ttk.LabelFrame(layout, text="进样进度")
-        self._inject_group.pack(fill="x", pady=4)
-        self._inject_bar = ttk.Progressbar(self._inject_group, maximum=100)
-        self._inject_bar.pack(fill="x", padx=8, pady=(4, 0))
+        # ---- 进样进度（默认隐藏）----
+        self._inject_group = ttk.LabelFrame(layout, text=i18n.tr("results.inject"))
+        inject_inner = ttk.Frame(self._inject_group, padding=(8, 6))
+        inject_inner.pack(fill="both", expand=True)
+        self._inject_bar = ttk.Progressbar(
+            inject_inner, maximum=100, bootstyle="info-striped"
+        )
+        self._inject_bar.pack(fill="x", pady=(2, 0))
+        self._inject_text_label = ttk.Label(
+            inject_inner, text="", anchor="center", style="Subtle.TLabel"
+        )
+        self._inject_text_label.pack(fill="x", pady=(2, 0))
         self._eta_label = ttk.Label(
-            self._inject_group, text="", anchor="center", font=("", 9)
+            inject_inner, text="", anchor="center", style="Subtle.TLabel"
         )
-        self._eta_label.pack(fill="x", padx=8, pady=(0, 4))
-        self._inject_group.pack_forget()  # 默认隐藏
+        self._eta_label.pack(fill="x")
 
-        # ---- 分隔 ----
-        ttk.Separator(layout, orient="horizontal").pack(fill="x", pady=8)
-
-        # ---- 结果 ----
-        result_group = ttk.LabelFrame(layout, text="结果")
-        result_group.pack(fill="x", pady=4)
-
+        # ---- KPI 卡片：终点体积 ----
+        self._ep_card = Card(layout, tone="alt")
+        self._ep_card.pack(fill="x", pady=(2, 6))
+        ep_body = ttk.Frame(self._ep_card, style="Kpi.TFrame", padding=(10, 8))
+        ep_body.pack(fill="both", expand=True)
+        self._ep_caption = ttk.Label(
+            ep_body, text=i18n.tr("results.endpoint"), style="Kpi.TLabel"
+        )
+        self._ep_caption.pack(anchor="w")
+        ep_value_row = ttk.Frame(ep_body, style="Kpi.TFrame")
+        ep_value_row.pack(anchor="w")
         self._v_ep_label = ttk.Label(
-            result_group,
-            text="—",
-            font=("monospace", 10, "bold"),
-            foreground="#e67e22",
+            ep_value_row, text="—", style="KpiAccent.TLabel"
         )
-        self._add_form_row(result_group, "终点体积 (mL):", self._v_ep_label)
+        self._v_ep_label.pack(side="left")
+        ttk.Label(
+            ep_value_row, text=" " + i18n.tr("results.endpoint_unit"), style="KpiUnit.TLabel"
+        ).pack(side="left", pady=(6, 0))
+        self._ep_unit_label = ep_value_row.winfo_children()[-1]
 
-        bold_mono = tkfont.Font(family="monospace", size=11, weight="bold")
-        self._c_x_label = ttk.Label(
-            result_group,
-            text="—",
-            font=bold_mono,
-            foreground="#27ae60",
+        # ---- KPI 卡片：Cₓ ----
+        self._cx_card = Card(layout, tone="alt")
+        self._cx_card.pack(fill="x", pady=(0, 6))
+        cx_body = ttk.Frame(self._cx_card, style="Kpi.TFrame", padding=(10, 8))
+        cx_body.pack(fill="both", expand=True)
+        self._cx_caption = ttk.Label(
+            cx_body, text=i18n.tr("results.cx"), style="Kpi.TLabel"
         )
-        self._add_form_row(result_group, "Cₓ (mol/L):", self._c_x_label)
+        self._cx_caption.pack(anchor="w")
+        cx_value_row = ttk.Frame(cx_body, style="Kpi.TFrame")
+        cx_value_row.pack(anchor="w")
+        self._c_x_label = ttk.Label(
+            cx_value_row, text="—", style="KpiSuccess.TLabel"
+        )
+        self._c_x_label.pack(side="left")
+        ttk.Label(
+            cx_value_row, text=" " + i18n.tr("results.cx_unit"), style="KpiUnit.TLabel"
+        ).pack(side="left", pady=(6, 0))
+        self._cx_unit_label = cx_value_row.winfo_children()[-1]
 
         # 内部状态
         self._endpoint_volume: float | None = None
         self._sample_volume: float = 0.0
         self._inject_target: int = 0
         self._inject_target_vol: float = 0.0
+
+        i18n.subscribe(self._apply_i18n)
+
+    # ---- i18n ----
+
+    def _apply_i18n(self) -> None:
+        self._title.config(text=i18n.tr("results.title"))
+        if self._rec_cb is not None:
+            self._rec_cb.config(text=i18n.tr("toolbar.record"))
+        self._electrode_label.config(text=i18n.tr("results.electrode"))
+        self._stoich_group.config(text=i18n.tr("results.stoich"))
+        self._n_std_label.config(text=i18n.tr("results.n_std"))
+        self._n_analyte_label.config(text=i18n.tr("results.n_analyte"))
+        self._conc_group.config(text=i18n.tr("results.conc"))
+        self._c_std_label.config(text=i18n.tr("results.c_std"))
+        self._sample_group.config(text=i18n.tr("results.sample"))
+        self._v_sample_rowlabel.config(text=i18n.tr("results.sample_volume"))
+        self._v_now_rowlabel.config(text=i18n.tr("results.current_voltage"))
+        self._inject_group.config(text=i18n.tr("results.inject"))
+        self._ep_caption.config(text=i18n.tr("results.endpoint"))
+        self._ep_unit_label.config(text=" " + i18n.tr("results.endpoint_unit"))
+        self._cx_caption.config(text=i18n.tr("results.cx"))
+        self._cx_unit_label.config(text=" " + i18n.tr("results.cx_unit"))
+        # 电极下拉框首项（Raw Potential）
+        if self._electrode_values:
+            raw = i18n.tr("results.raw_potential")
+            old_first = self._electrode_values[0]
+            if old_first != raw:
+                self._electrode_values[0] = raw
+                self._electrode_map[raw] = self._electrode_map.pop(old_first)
+                self._electrode_combo["values"] = self._electrode_values
+                if self._electrode_combo.get() == old_first:
+                    self._electrode_combo.set(raw)
 
     # ---- 工具 ----
 
@@ -123,11 +219,14 @@ class ResultsPanel(ttk.Frame):
         return sb
 
     @staticmethod
-    def _add_form_row(parent: tk.Misc, label: str, widget: tk.Widget) -> None:
+    def _add_form_row(parent: tk.Misc, label: str, widget: tk.Widget) -> ttk.Label:
         row = ttk.Frame(parent)
-        row.pack(fill="x", padx=8, pady=2)
-        ttk.Label(row, text=label).pack(side="left")
-        widget.pack(in_=row, side="right")
+        row.pack(fill="x", pady=2)
+        row.grid_columnconfigure(0, weight=1)
+        lbl = ttk.Label(row, text=label)
+        lbl.grid(row=0, column=0, sticky="w")
+        widget.grid(in_=row, row=0, column=1, sticky="e", padx=(8, 0))
+        return lbl
 
     def _spin_value(self, sb: ttk.Spinbox) -> float:
         try:
@@ -139,8 +238,9 @@ class ResultsPanel(ttk.Frame):
 
     def set_electrodes(self, electrode_list: list[tuple]) -> None:
         self._electrode_data = electrode_list
-        self._electrode_values = ["Raw Potential (V)"]
-        self._electrode_map = {"Raw Potential (V)": None}
+        raw = i18n.tr("results.raw_potential")
+        self._electrode_values = [raw]
+        self._electrode_map = {raw: None}
         for name, slope, intercept, unit in electrode_list:
             disp = f"{name} ({unit})"
             self._electrode_values.append(disp)
@@ -150,7 +250,7 @@ class ResultsPanel(ttk.Frame):
             self._electrode_combo.set(self._electrode_values[0])
 
     def on_electrode_changed(self, cb: Callable[[object], None]) -> None:
-        """注册电极选择变化回调（替代 Qt Signal）。"""
+        """注册电极选择变化回调。"""
         self._on_electrode_cb = cb
 
     def _on_combo_changed(self, _event: object = None) -> None:
@@ -183,9 +283,9 @@ class ResultsPanel(ttk.Frame):
         self._inject_target = target_steps
         self._inject_target_vol = target_vol
         self._inject_bar["value"] = 0
-        self._inject_bar["text"] = f"0.000 / {target_vol:.3f} mL"
+        self._inject_text_label.config(text=f"0.000 / {target_vol:.3f} mL")
         self._eta_label.config(text="")
-        self._inject_group.pack(fill="x", pady=4)
+        self._inject_group.pack(fill="x", pady=(0, 6), before=self._ep_card)
 
     def update_inject_progress(self, pos: int, volume: float = 0.0) -> None:
         if self._inject_target <= 0:
@@ -196,19 +296,19 @@ class ResultsPanel(ttk.Frame):
         remaining = max(0, self._inject_target - pos)
         eta_sec = remaining // 1000
         if pct < 100 and remaining > 0:
-            self._inject_bar["text"] = f"{volume:.3f} / {tv:.3f} mL  ({pct}%)"
+            self._inject_text_label.config(text=f"{volume:.3f} / {tv:.3f} mL  ({pct}%)")
             self._eta_label.config(
-                text=f"ETA {eta_sec // 60:02d}:{eta_sec % 60:02d}"
+                text=i18n.tr("results.eta", eta=f"{eta_sec // 60:02d}:{eta_sec % 60:02d}")
             )
         else:
-            self._inject_bar["text"] = "进样完成 ✓"
+            self._inject_text_label.config(text=i18n.tr("results.inject_done"))
             self._eta_label.config(text="")
 
     def hide_inject_progress(self) -> None:
+        self._inject_text_label.config(text="")
         self._eta_label.config(text="")
         self._inject_group.pack_forget()
         self._inject_bar["value"] = 0
-        self._inject_bar["text"] = "等待开始"
 
     # ---- 内部 ----
 

@@ -1,0 +1,212 @@
+{
+  "app": {
+    "title": "多模态自动滴定控制器"
+  },
+  "common": {
+    "start": "启动",
+    "stop": "停止",
+    "save": "保存",
+    "record": "记录",
+    "undo_last": "撤销最后",
+    "undo": "撤销",
+    "clear": "清空",
+    "ready": "就绪"
+  },
+  "pump": {
+    "inject": "进样泵",
+    "titrate": "滴定泵"
+  },
+  "toolbar": {
+    "port": "端口:",
+    "baud": "波特率:",
+    "more": "更多",
+    "connect": "连接",
+    "disconnect": "断开",
+    "sample_volume": "进样体积 (mL):",
+    "start": "开始滴定",
+    "stop": "停止滴定",
+    "emergency_stop": "急停",
+    "reset_mcu": "复位MCU",
+    "record": "记录数据",
+    "language": "语言:",
+    "theme": "主题:",
+    "group_conn": "连接",
+    "group_run": "滴定控制",
+    "group_dev": "设备",
+    "group_view": "显示"
+  },
+  "phases": {
+    "ready": "就绪",
+    "injecting": "进样",
+    "titrating": "滴定",
+    "detecting": "终点检测",
+    "done": "完成"
+  },
+  "gauge": {
+    "title": "滴定度",
+    "t1": "T=1"
+  },
+  "overlay": {
+    "disconnected": "设备未连接 — 连接后显示实时数据",
+    "waiting": "等待数据…"
+  },
+  "msg": {
+    "connected": "已连接 {port}",
+    "disconnected": "设备已断开"
+  },
+  "confirm": {
+    "reset_title": "复位 MCU",
+    "reset_msg": "复位 MCU 将停止所有运行中的泵，并中止当前滴定。继续吗？",
+    "del_elec_title": "删除电极",
+    "del_elec_msg": "删除电极「{name}」？其校准数据将一并移除。"
+  },
+  "tooltip": {
+    "start": "开始滴定 (F5)",
+    "estop": "紧急停止 (Esc)"
+  },
+  "theme": {
+    "light": "浅色",
+    "dark": "深色",
+    "system": "跟随系统"
+  },
+  "tabs": {
+    "titration": "滴定",
+    "calibration": "校准",
+    "maintenance": "维护"
+  },
+  "states": {
+    "idle": "空闲",
+    "injecting": "进样中…",
+    "titrating": "滴定中…",
+    "degree1": "终点 T=1",
+    "titrating2": "滴定至 T=2…",
+    "done": "完成",
+    "error": "错误"
+  },
+  "conn": {
+    "connected": "已连接",
+    "disconnected": "未连接",
+    "hint": "提示",
+    "select_port": "请选择串口端口",
+    "connect_first": "请先连接串口"
+  },
+  "status": {
+    "error_fmt": "错误: {msg}",
+    "emergency_stopped": "已紧急停止，MCU 复位",
+    "reset_done": "已复位（MCU + 上位机）",
+    "manual_stopped": "手动停止",
+    "manual_stopped_at": "手动停止 @ {vol} mL",
+    "endpoint_t1": "终点 T=1 @ {vol} mL",
+    "endpoint_final": "终点: {vol} mL",
+    "progress": "T=1 @ {ep} mL | T={t}  vol={vol} mL",
+    "detect": "检测: {vol} mL, 置信度={conf}",
+    "injecting": "进样 {vol} mL …",
+    "pump_done": "泵{id}完成 pos={pos}",
+    "pump2_vol": "泵2 vol={vol} mL  +{diff}",
+    "exported": "数据已导出: {file}",
+    "recording_on": "数据记录已开始",
+    "recording_off": "数据记录已停止",
+    "nak": "NAK"
+  },
+  "results": {
+    "title": "滴定计算",
+    "electrode": "电极",
+    "raw_potential": "原始电位 (V)",
+    "stoich": "化学计量数",
+    "n_std": "标准液 (n₁):",
+    "n_analyte": "待测液 (n₂):",
+    "conc": "标准液浓度",
+    "c_std": "C₁ (mol/L):",
+    "sample": "待测液",
+    "sample_volume": "取样体积 (mL):",
+    "current_voltage": "当前电压:",
+    "inject": "进样进度",
+    "inject_done": "进样完成",
+    "waiting": "等待开始",
+    "eta": "ETA {eta}",
+    "result": "结果",
+    "endpoint": "终点体积",
+    "endpoint_unit": "mL",
+    "cx": "Cₓ 浓度",
+    "cx_unit": "mol/L"
+  },
+  "plot": {
+    "spectrum": "实时光谱",
+    "wavelength": "Wavelength (nm)",
+    "intensity": "Intensity (a.u.)",
+    "potential": "电位–体积",
+    "px": "{unit}–体积",
+    "time": "Time (s)",
+    "potential_v": "Potential (V)",
+    "volume": "Volume (mL)",
+    "degree": "Titration degree (T)",
+    "alpha": "平滑 α:"
+  },
+  "calib": {
+    "tab_pump1": "进样泵",
+    "tab_pump2": "滴定泵",
+    "tab_electrode": "电极校准",
+    "tab_matrix": "光谱矩阵",
+    "jog": "点动 10000 脉冲",
+    "volume": "体积 (mL):",
+    "not_connected": "串口未连接",
+    "pump_running": "泵运行中…",
+    "jog_done": "点动完成，当前位置: {pos} 脉冲，请输入体积",
+    "invalid_volume": "体积输入无效",
+    "volume_positive": "体积必须大于 0",
+    "recorded": "记录 ({n}): {pulses} 脉冲 → {vol} mL",
+    "undone": "撤销，剩余 {n} 点",
+    "cleared": "已清空",
+    "not_fitted": "尚未拟合",
+    "need_two": "至少需要 2 个点",
+    "fit": "V = {slope} × 脉冲  (R² = {r2})  |  点数: {n}",
+    "need_two_save": "至少需要 2 个点才能保存",
+    "saved": "已保存: {path}",
+    "loaded": "已加载 {n} 个校准点",
+    "no_data": "暂无泵校准数据",
+    "load_failed": "校准文件读取失败",
+    "pump_curve": "泵 {id} 校准曲线",
+    "th_idx": "#",
+    "th_pulses": "脉冲数",
+    "th_volume": "体积 (mL)",
+    "electrode": "电极:",
+    "unit": "单位:",
+    "notes": "备注:",
+    "current_potential": "当前电位:",
+    "std_value": "标准值:",
+    "confirm": "确认记录",
+    "th_std": "标准值",
+    "th_mv": "电位 (mV)",
+    "not_calibrated": "尚未校准",
+    "electrode_curve": "电极校准曲线",
+    "add_title": "添加电极",
+    "add_name": "电极名称:",
+    "electrode_fit": "{unit} = {intercept} + ({slope}) × E(mV)  (R² = {r2})",
+    "saved_electrode": "已保存 — {name}: {unit} = {intercept} + ({slope}) × E  (R² = {r2})",
+    "matrix_title": "光谱重建矩阵 ({wl}λ × {ch}ch)",
+    "matrix_not_loaded": "校准数据未加载",
+    "matrix_info": "每列对应一个 AS7341 通道 (F1–F8, Clear, NIR)，每行对应一个波长 (380–1100 nm)。\n矩阵尺寸: {rows}λ × {cols}ch, 值范围: [{vmin}, {vmax}]",
+    "matrix_channel": "Channel",
+    "flow": "流程",
+    "pump_s1": "点动泵",
+    "pump_s2": "量取并记录体积",
+    "pump_s3": "保存校准",
+    "ph_s1": "设置标准值",
+    "ph_s2": "确认记录电位",
+    "ph_s3": "保存校准"
+  },
+  "maint": {
+    "title": "维护操作",
+    "subtitle": "以下操作均使用 FreeRun 模式（持续运行直到手动停止）。\n启动后请肉眼观察管路状态，确认完成后点击「停止」。",
+    "select_pump": "选择泵:",
+    "running": "{pumps} 运行中… 请观察，完成后点击停止",
+    "stopped": "已停止",
+    "offline": "串口未连接，操作已禁用",
+    "empty_title": "排空管路",
+    "empty_info": "将管路一端放入废液杯，启动泵排空管内残留液体。\n肉眼观察管内液体排空后，点击「停止」。",
+    "fill_title": "充满管路（滴定前排气）",
+    "fill_info": "进样泵：将入口放入待测液中，排空管内空气和水。\n滴定泵：将入口放入滴定液中，排空管内空气和水。\n\n启动前确认管路连接正确，避免液体交叉污染。\n待液体连续流出、管内无气泡后，点击「停止」。",
+    "wash_title": "清洗管路（去离子水）",
+    "wash_info": "将管路入口端放入去离子水中，出口端放入废液杯。\n启动泵冲洗管路内部，建议冲洗 30 秒以上。\n肉眼观察出水干净后，点击「停止」。\n\n清洗后如需立即使用，请用「充满管路」排出残留水份。"
+  }
+}

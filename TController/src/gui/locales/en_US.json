@@ -1,0 +1,212 @@
+{
+  "app": {
+    "title": "Multimodal Automatic Titration Controller"
+  },
+  "common": {
+    "start": "Start",
+    "stop": "Stop",
+    "save": "Save",
+    "record": "Record",
+    "undo_last": "Undo Last",
+    "undo": "Undo",
+    "clear": "Clear",
+    "ready": "Ready"
+  },
+  "pump": {
+    "inject": "Sample Pump",
+    "titrate": "Titrant Pump"
+  },
+  "toolbar": {
+    "port": "Port:",
+    "baud": "Baud Rate:",
+    "more": "More",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "sample_volume": "Sample Volume (mL):",
+    "start": "Start Titration",
+    "stop": "Stop Titration",
+    "emergency_stop": "E-STOP",
+    "reset_mcu": "Reset MCU",
+    "record": "Record Data",
+    "language": "Language:",
+    "theme": "Theme:",
+    "group_conn": "Connection",
+    "group_run": "Titration Control",
+    "group_dev": "Device",
+    "group_view": "View"
+  },
+  "phases": {
+    "ready": "Ready",
+    "injecting": "Injecting",
+    "titrating": "Titrating",
+    "detecting": "Endpoint Detection",
+    "done": "Done"
+  },
+  "gauge": {
+    "title": "Titration Degree",
+    "t1": "T=1"
+  },
+  "overlay": {
+    "disconnected": "Device not connected — live data unavailable",
+    "waiting": "Waiting for data…"
+  },
+  "msg": {
+    "connected": "Connected to {port}",
+    "disconnected": "Device disconnected"
+  },
+  "confirm": {
+    "reset_title": "Reset MCU",
+    "reset_msg": "Resetting the MCU stops all running pumps and aborts the current titration. Continue?",
+    "del_elec_title": "Delete Electrode",
+    "del_elec_msg": "Delete electrode \"{name}\"? Its calibration data will be removed as well."
+  },
+  "tooltip": {
+    "start": "Start titration (F5)",
+    "estop": "Emergency stop (Esc)"
+  },
+  "theme": {
+    "light": "Light",
+    "dark": "Dark",
+    "system": "Follow System"
+  },
+  "tabs": {
+    "titration": "Titration",
+    "calibration": "Calibration",
+    "maintenance": "Maintenance"
+  },
+  "states": {
+    "idle": "Idle",
+    "injecting": "Injecting…",
+    "titrating": "Titrating…",
+    "degree1": "Endpoint T=1",
+    "titrating2": "Titrating to T=2…",
+    "done": "Done",
+    "error": "Error"
+  },
+  "conn": {
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "hint": "Notice",
+    "select_port": "Please select a serial port",
+    "connect_first": "Please connect the serial port first"
+  },
+  "status": {
+    "error_fmt": "Error: {msg}",
+    "emergency_stopped": "Emergency stop — MCU reset",
+    "reset_done": "Reset complete (MCU + host)",
+    "manual_stopped": "Manually stopped",
+    "manual_stopped_at": "Manual stop @ {vol} mL",
+    "endpoint_t1": "Endpoint T=1 @ {vol} mL",
+    "endpoint_final": "Endpoint: {vol} mL",
+    "progress": "T=1 @ {ep} mL | T={t}  vol={vol} mL",
+    "detect": "Detected: {vol} mL, confidence={conf}",
+    "injecting": "Injecting {vol} mL …",
+    "pump_done": "Pump {id} done pos={pos}",
+    "pump2_vol": "Pump 2 vol={vol} mL  +{diff}",
+    "exported": "Data exported: {file}",
+    "recording_on": "Data recording started",
+    "recording_off": "Data recording stopped",
+    "nak": "NAK"
+  },
+  "results": {
+    "title": "Titration Calculation",
+    "electrode": "Electrode",
+    "raw_potential": "Raw Potential (V)",
+    "stoich": "Stoichiometry",
+    "n_std": "Standard (n₁):",
+    "n_analyte": "Analyte (n₂):",
+    "conc": "Standard Concentration",
+    "c_std": "C₁ (mol/L):",
+    "sample": "Analyte Solution",
+    "sample_volume": "Sample Volume (mL):",
+    "current_voltage": "Current Voltage:",
+    "inject": "Injection Progress",
+    "inject_done": "Injection complete",
+    "waiting": "Waiting to start",
+    "eta": "ETA {eta}",
+    "result": "Results",
+    "endpoint": "Endpoint Volume",
+    "endpoint_unit": "mL",
+    "cx": "Cₓ Concentration",
+    "cx_unit": "mol/L"
+  },
+  "plot": {
+    "spectrum": "Real-time Spectrum",
+    "wavelength": "Wavelength (nm)",
+    "intensity": "Intensity (a.u.)",
+    "potential": "Potential–Volume",
+    "px": "{unit}–Volume",
+    "time": "Time (s)",
+    "potential_v": "Potential (V)",
+    "volume": "Volume (mL)",
+    "degree": "Titration degree (T)",
+    "alpha": "Smoothing α:"
+  },
+  "calib": {
+    "tab_pump1": "Sample Pump",
+    "tab_pump2": "Titrant Pump",
+    "tab_electrode": "Electrode Calibration",
+    "tab_matrix": "Spectral Matrix",
+    "jog": "Jog 10000 Pulses",
+    "volume": "Volume (mL):",
+    "not_connected": "Serial port not connected",
+    "pump_running": "Pump running…",
+    "jog_done": "Jog complete, position: {pos} pulses — enter the dispensed volume",
+    "invalid_volume": "Invalid volume input",
+    "volume_positive": "Volume must be greater than 0",
+    "recorded": "Recorded ({n}): {pulses} pulses → {vol} mL",
+    "undone": "Undone, {n} points remaining",
+    "cleared": "Cleared",
+    "not_fitted": "Not fitted yet",
+    "need_two": "At least 2 points required",
+    "fit": "V = {slope} × pulses  (R² = {r2})  |  Points: {n}",
+    "need_two_save": "At least 2 points required before saving",
+    "saved": "Saved: {path}",
+    "loaded": "Loaded {n} calibration points",
+    "no_data": "No pump calibration data",
+    "load_failed": "Failed to read calibration file",
+    "pump_curve": "Pump {id} Calibration Curve",
+    "th_idx": "#",
+    "th_pulses": "Pulses",
+    "th_volume": "Volume (mL)",
+    "electrode": "Electrode:",
+    "unit": "Unit:",
+    "notes": "Notes:",
+    "current_potential": "Current Potential:",
+    "std_value": "Standard Value:",
+    "confirm": "Confirm & Record",
+    "th_std": "Standard Value",
+    "th_mv": "Potential (mV)",
+    "not_calibrated": "Not calibrated",
+    "electrode_curve": "Electrode Calibration Curve",
+    "add_title": "Add Electrode",
+    "add_name": "Electrode name:",
+    "electrode_fit": "{unit} = {intercept} + ({slope}) × E(mV)  (R² = {r2})",
+    "saved_electrode": "Saved — {name}: {unit} = {intercept} + ({slope}) × E  (R² = {r2})",
+    "matrix_title": "Spectral Reconstruction Matrix ({wl}λ × {ch}ch)",
+    "matrix_not_loaded": "Calibration data not loaded",
+    "matrix_info": "Each column corresponds to one AS7341 channel (F1–F8, Clear, NIR); each row corresponds to a wavelength (380–1100 nm).\nMatrix size: {rows}λ × {cols}ch, value range: [{vmin}, {vmax}]",
+    "matrix_channel": "Channel",
+    "flow": "Workflow",
+    "pump_s1": "Jog pump",
+    "pump_s2": "Measure & record volume",
+    "pump_s3": "Save calibration",
+    "ph_s1": "Enter standard value",
+    "ph_s2": "Record potential",
+    "ph_s3": "Save calibration"
+  },
+  "maint": {
+    "title": "Maintenance",
+    "subtitle": "All operations below use FreeRun mode (runs continuously until manually stopped).\nAfter starting, watch the tubing and click \"Stop\" when finished.",
+    "select_pump": "Select Pump:",
+    "running": "{pumps} running… watch the tubing and click Stop when done",
+    "stopped": "Stopped",
+    "offline": "Not connected — controls disabled",
+    "empty_title": "Empty Tubing",
+    "empty_info": "Place one end of the tubing into the waste beaker, then start the pump to expel residual liquid.\nWatch until the tubing is empty, then click \"Stop\".",
+    "fill_title": "Fill Tubing (Prime Before Titration)",
+    "fill_info": "Sample pump: place the inlet in the analyte solution to purge air and water.\nTitrant pump: place the inlet in the titrant to purge air and water.\n\nVerify tubing connections before starting to avoid cross-contamination.\nOnce the liquid flows steadily with no bubbles, click \"Stop\".",
+    "wash_title": "Wash Tubing (Deionized Water)",
+    "wash_info": "Place the tubing inlet in deionized water and the outlet in the waste beaker.\nRun the pump to rinse the tubing — at least 30 seconds is recommended.\nOnce the outflow runs clear, click \"Stop\".\n\nIf you plan to run a titration immediately afterwards, use \"Fill Tubing\" to displace residual water."
+  }
+}

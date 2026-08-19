@@ -1,4 +1,4 @@
-"""校准选项卡 — 泵校准 + pH 电极校准（ttkbootstrap + matplotlib）。"""
+"""校准选项卡 — 泵校准 + 电极校准（ttkbootstrap + matplotlib，i18n 支持）。"""
 
 from __future__ import annotations
 
@@ -8,10 +8,14 @@ from tkinter import simpledialog
 
 import numpy as np
 import ttkbootstrap as ttk
+from ttkbootstrap.dialogs import Messagebox
+
 from Communication import ProtocolHandler
 from DataProcessor._path import CALIBRE_PATH
-
+from gui import i18n, themes
 from gui._plot import _BlitPlot
+from gui.themes import MONO_FONT, UI_FONT
+from gui.widgets import WorkflowHint
 
 DATA_DIR = os.path.dirname(CALIBRE_PATH)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -67,16 +71,19 @@ class PumpCalibWidget(ttk.Frame):
         self._points: list[tuple[int, float]] = []  # (pulses, volume_mL)
 
         inner = ttk.Frame(self)
-        inner.pack(fill="both", expand=True, padx=8, pady=8)
+        inner.pack(fill="both", expand=True, padx=10, pady=10)
 
         # ---- 操作区 ----
         ctrl = ttk.Frame(inner)
         ctrl.pack(fill="x")
 
-        self._jog_btn = ttk.Button(ctrl, text="点动 10000 脉冲", command=self._jog)
+        self._jog_btn = ttk.Button(
+            ctrl, text=i18n.tr("calib.jog"), bootstyle="primary", command=self._jog
+        )
         self._jog_btn.pack(side="left")
 
-        ttk.Label(ctrl, text="体积 (mL):").pack(side="left", padx=(8, 4))
+        self._vol_label = ttk.Label(ctrl, text=i18n.tr("calib.volume"), style="Muted.TLabel")
+        self._vol_label.pack(side="left", padx=(12, 4))
 
         self._vol_input = ttk.Spinbox(
             ctrl, from_=0, to=999, increment=0.01, format="%.6f", width=10
@@ -84,15 +91,34 @@ class PumpCalibWidget(ttk.Frame):
         self._vol_input.set(0)
         self._vol_input.pack(side="left")
 
-        ttk.Button(ctrl, text="记录", command=self._record).pack(side="left", padx=8)
-        ttk.Button(ctrl, text="撤销最后", command=self._undo).pack(side="left", padx=4)
-        ttk.Button(ctrl, text="清空", command=self._clear_points).pack(
-            side="left", padx=4
+        self._record_btn = ttk.Button(
+            ctrl, text=i18n.tr("common.record"), bootstyle="success", command=self._record
         )
+        self._record_btn.pack(side="left", padx=8)
+        self._undo_btn = ttk.Button(
+            ctrl, text=i18n.tr("common.undo_last"), bootstyle="outline", command=self._undo
+        )
+        self._undo_btn.pack(side="left", padx=4)
+        self._clear_btn = ttk.Button(
+            ctrl, text=i18n.tr("common.clear"), bootstyle="outline", command=self._clear_points
+        )
+        self._clear_btn.pack(side="left", padx=4)
+
+        # ---- 工作流引导 ----
+        flow_row = ttk.Frame(inner)
+        flow_row.pack(fill="x", pady=(8, 0))
+        self._flow_caption = ttk.Label(
+            flow_row, text=i18n.tr("calib.flow") + ":", style="Subtle.TLabel"
+        )
+        self._flow_caption.pack(side="left", padx=(0, 8))
+        self._flow = WorkflowHint(
+            flow_row, ["calib.pump_s1", "calib.pump_s2", "calib.pump_s3"]
+        )
+        self._flow.pack(side="left")
 
         # ---- 状态 ----
-        self._status_label = ttk.Label(inner, text="就绪")
-        self._status_label.pack(anchor="w", pady=(4, 0))
+        self._status_label = ttk.Label(inner, text=i18n.tr("common.ready"), style="Muted.TLabel")
+        self._status_label.pack(anchor="w", pady=(6, 0))
 
         # ---- 数据表 ----
         table_frame = ttk.Frame(inner)
@@ -103,9 +129,9 @@ class PumpCalibWidget(ttk.Frame):
             show="headings",
             height=6,
         )
-        self._table.heading("idx", text="#")
-        self._table.heading("pulses", text="脉冲数")
-        self._table.heading("volume", text="体积 (mL)")
+        self._table.heading("idx", text=i18n.tr("calib.th_idx"))
+        self._table.heading("pulses", text=i18n.tr("calib.th_pulses"))
+        self._table.heading("volume", text=i18n.tr("calib.th_volume"))
         self._table.column("idx", width=40, anchor="center")
         self._table.column("pulses", width=100, anchor="center")
         self._table.column("volume", width=120, anchor="center")
@@ -115,50 +141,80 @@ class PumpCalibWidget(ttk.Frame):
         self._table.configure(yscrollcommand=sb.set)
 
         # ---- 校准曲线图 ----
-        self._plot_widget = _PumpCalibPlot(inner, title=f"泵 {pump_id} 校准曲线")
+        self._plot_widget = _PumpCalibPlot(
+            inner, title=i18n.tr("calib.pump_curve", id=pump_id)
+        )
         self._plot_widget.pack(fill="both", expand=True, pady=4)
 
         # ---- 校准结果 ----
-        self._result_label = ttk.Label(inner, text="尚未拟合", font=("", 9, "bold"))
+        self._result_label = ttk.Label(
+            inner, text=i18n.tr("calib.not_fitted"), font=(UI_FONT, 9, "bold")
+        )
         self._result_label.pack(anchor="w")
 
         # ---- 保存 ----
         save_row = ttk.Frame(inner)
-        save_row.pack(fill="x", pady=(4, 0))
-        ttk.Button(save_row, text="保存校准", command=self._save).pack(side="left")
+        save_row.pack(fill="x", pady=(6, 0))
+        self._save_btn = ttk.Button(
+            save_row, text=i18n.tr("common.save"), bootstyle="primary", command=self._save
+        )
+        self._save_btn.pack(side="left")
 
         # 加载已有数据
         self._load()
         self._update_table()
         self._update_plot()
 
+        i18n.subscribe(self._apply_i18n)
+
+    # ---- i18n ----
+
+    def _apply_i18n(self) -> None:
+        self._jog_btn.config(text=i18n.tr("calib.jog"))
+        self._vol_label.config(text=i18n.tr("calib.volume"))
+        self._record_btn.config(text=i18n.tr("common.record"))
+        self._undo_btn.config(text=i18n.tr("common.undo_last"))
+        self._clear_btn.config(text=i18n.tr("common.clear"))
+        self._save_btn.config(text=i18n.tr("common.save"))
+        self._flow_caption.config(text=i18n.tr("calib.flow") + ":")
+        self._table.heading("idx", text=i18n.tr("calib.th_idx"))
+        self._table.heading("pulses", text=i18n.tr("calib.th_pulses"))
+        self._table.heading("volume", text=i18n.tr("calib.th_volume"))
+        self._plot_widget.set_title(i18n.tr("calib.pump_curve", id=self._pump_id))
+        # 拟合结果文本重渲染
+        if len(self._points) >= 2:
+            self._update_plot()
+        else:
+            self._result_label.config(text=i18n.tr("calib.not_fitted"))
+
     # ---- 操作 ----
 
     def _jog(self) -> None:
         if not self._com.is_open:
-            self._status_label.config(text="串口未连接")
+            self._status_label.config(text=i18n.tr("calib.not_connected"))
             return
         self._jog_btn.state(["disabled"])
-        self._status_label.config(text="泵运行中…")
+        self._status_label.config(text=i18n.tr("calib.pump_running"))
         self._com.request_pump_done_once(self._on_jog_done)
         self._com.send_maxcount(self._pump_id, 10000)
         # 超时保护
         self.after(5000, lambda: self._jog_btn.state(["!disabled"]))
 
-    def _on_jog_done(self, position: int) -> None:
+    def _on_jog_done(self, data: tuple) -> None:
+        pump_id, position = data
+        if pump_id != self._pump_id:
+            return
         self._jog_btn.state(["!disabled"])
-        self._status_label.config(
-            text=f"点动完成，当前位置: {position} 脉冲，请输入体积"
-        )
+        self._status_label.config(text=i18n.tr("calib.jog_done", pos=position))
 
     def _record(self) -> None:
         try:
             vol = float(self._vol_input.get())
         except (ValueError, tk.TclError):
-            self._status_label.config(text="体积输入无效")
+            self._status_label.config(text=i18n.tr("calib.invalid_volume"))
             return
         if vol <= 0:
-            self._status_label.config(text="体积必须大于 0")
+            self._status_label.config(text=i18n.tr("calib.volume_positive"))
             return
         # 累计脉冲数：上一点 + 10000，若无则从 10000 开始
         total_pulses = (self._points[-1][0] + 10000) if self._points else 10000
@@ -166,8 +222,14 @@ class PumpCalibWidget(ttk.Frame):
         self._update_table()
         self._update_plot()
         self._vol_input.set(0)
+        self._flow.set_active(1)
         self._status_label.config(
-            text=f"记录 ({len(self._points)}): {total_pulses} 脉冲 → {vol:.6f} mL"
+            text=i18n.tr(
+                "calib.recorded",
+                n=len(self._points),
+                pulses=total_pulses,
+                vol=f"{vol:.6f}",
+            )
         )
 
     def _undo(self) -> None:
@@ -175,14 +237,18 @@ class PumpCalibWidget(ttk.Frame):
             self._points.pop()
             self._update_table()
             self._update_plot()
-            self._status_label.config(text=f"撤销，剩余 {len(self._points)} 点")
+            self._flow.set_active(1 if self._points else 0)
+            self._status_label.config(
+                text=i18n.tr("calib.undone", n=len(self._points))
+            )
 
     def _clear_points(self) -> None:
         self._points.clear()
         self._update_table()
         self._update_plot()
-        self._result_label.config(text="尚未拟合")
-        self._status_label.config(text="已清空")
+        self._flow.set_active(0)
+        self._result_label.config(text=i18n.tr("calib.not_fitted"))
+        self._status_label.config(text=i18n.tr("calib.cleared"))
 
     # ---- 显示 ----
 
@@ -197,7 +263,7 @@ class PumpCalibWidget(ttk.Frame):
     def _update_plot(self) -> None:
         if len(self._points) < 2:
             self._plot_widget.clear()
-            self._result_label.config(text="至少需要 2 个点")
+            self._result_label.config(text=i18n.tr("calib.need_two"))
             return
         xs = np.array([p for p, _ in self._points], dtype=np.float64)
         ys = np.array([v for _, v in self._points], dtype=np.float64)
@@ -208,7 +274,9 @@ class PumpCalibWidget(ttk.Frame):
         self._plot_widget.update_data(xs, ys, x_fit, y_fit)
 
         self._result_label.config(
-            text=f"V = {slope:.10f} × 脉冲  (R² = {r2:.6f})  |  点数: {len(self._points)}"
+            text=i18n.tr(
+                "calib.fit", slope=f"{slope:.10f}", r2=f"{r2:.6f}", n=len(self._points)
+            )
         )
 
     # ---- 保存 / 加载 ----
@@ -218,7 +286,7 @@ class PumpCalibWidget(ttk.Frame):
 
     def _save(self) -> None:
         if len(self._points) < 2:
-            self._status_label.config(text="至少需要 2 个点才能保存")
+            self._status_label.config(text=i18n.tr("calib.need_two_save"))
             return
         xs = np.array([p for p, _ in self._points], dtype=np.float64)
         ys = np.array([v for _, v in self._points], dtype=np.float64)
@@ -226,7 +294,7 @@ class PumpCalibWidget(ttk.Frame):
         pulses = np.array([p for p, _ in self._points], dtype=np.int32)
         volumes = np.array([v for _, v in self._points], dtype=np.float64)
         path = self._save_path()
-        # Load existing, merge with new pump data
+        # 与既有数据合并保存
         _merge = {}
         if os.path.isfile(path):
             try:
@@ -242,7 +310,8 @@ class PumpCalibWidget(ttk.Frame):
         _merge[f"{_p}intercept"] = 0.0
         _merge[f"{_p}r2"] = r2
         np.savez_compressed(path, **_merge)
-        self._status_label.config(text=f"已保存: {path}")
+        self._flow.set_active(2)
+        self._status_label.config(text=i18n.tr("calib.saved", path=path))
 
     def _load(self) -> None:
         path = self._save_path()
@@ -257,11 +326,14 @@ class PumpCalibWidget(ttk.Frame):
                 self._points = [
                     (int(p), float(v)) for p, v in zip(pulses, volumes)
                 ]
-                self._status_label.config(text=f"已加载 {len(self._points)} 个校准点")
+                self._flow.set_active(1)
+                self._status_label.config(
+                    text=i18n.tr("calib.loaded", n=len(self._points))
+                )
             else:
-                self._status_label.config(text="暂无泵校准数据")
+                self._status_label.config(text=i18n.tr("calib.no_data"))
         except Exception:
-            self._status_label.config(text="校准文件读取失败")
+            self._status_label.config(text=i18n.tr("calib.load_failed"))
         self._update_table()
         self._update_plot()
 
@@ -276,21 +348,41 @@ class _PumpCalibPlot(_BlitPlot):
 
     def __init__(self, parent: tk.Misc, title: str = "", **kwargs) -> None:
         super().__init__(parent, title=title, **kwargs)
-        self._ax.set_xlabel("Pulse")
-        self._ax.set_ylabel("Volume (mL)")
-        self._ax.grid(True, alpha=0.3)
+        self._ax.set_xlabel(i18n.tr("calib.th_pulses"))
+        self._ax.set_ylabel(i18n.tr("calib.th_volume"))
+        self._ax.grid(True, alpha=0.25)
 
-        # 散点
+        t = themes.current_tokens()
         self._scatter = self._ax.scatter(
-            [], [], c="#2980b9", s=40, zorder=3
+            [], [], c=t.plot_scatter, s=40, zorder=3
         )
-        # 拟合线
         (self._fit_line,) = self._ax.plot(
-            [], [], color="#e74c3c", linewidth=2, zorder=2
+            [], [], color=t.plot_fit, linewidth=2, zorder=2
         )
 
         self._artists = [self._fit_line, self._scatter]
         self._capture_bg()
+
+        i18n.subscribe(self._apply_i18n)
+        themes.subscribe(self._apply_theme)
+
+    def set_title(self, title: str) -> None:
+        self._ax.set_title(title)
+        self._request_full_redraw()
+        self.refresh()
+
+    def _apply_i18n(self) -> None:
+        self._ax.set_xlabel(i18n.tr("calib.th_pulses"))
+        self._ax.set_ylabel(i18n.tr("calib.th_volume"))
+        self._request_full_redraw()
+        self.refresh()
+
+    def _apply_theme(self) -> None:
+        t = themes.current_tokens()
+        self._scatter.set_facecolor(t.plot_scatter)
+        self._fit_line.set_color(t.plot_fit)
+        self._request_full_redraw()
+        self.refresh()
 
     def update_data(
         self,
@@ -332,12 +424,13 @@ class PHCalibWidget(ttk.Frame):
         self._data: dict = self._load_data()
 
         inner = ttk.Frame(self)
-        inner.pack(fill="both", expand=True, padx=8, pady=8)
+        inner.pack(fill="both", expand=True, padx=10, pady=10)
 
         # ---- 电极选择 ----
         sel_row = ttk.Frame(inner)
         sel_row.pack(fill="x")
-        ttk.Label(sel_row, text="电极:").pack(side="left")
+        self._electrode_label = ttk.Label(sel_row, text=i18n.tr("calib.electrode"), style="Muted.TLabel")
+        self._electrode_label.pack(side="left")
         self._electrode_combo = ttk.Combobox(
             sel_row, state="readonly", width=15
         )
@@ -353,13 +446,15 @@ class PHCalibWidget(ttk.Frame):
 
         # ---- 属性 ----
         attr_row = ttk.Frame(inner)
-        attr_row.pack(fill="x", pady=(4, 0))
-        ttk.Label(attr_row, text="单位:").pack(side="left")
+        attr_row.pack(fill="x", pady=(6, 0))
+        self._unit_label = ttk.Label(attr_row, text=i18n.tr("calib.unit"), style="Muted.TLabel")
+        self._unit_label.pack(side="left")
         self._unit_var = tk.StringVar(value="pH")
         self._unit_entry = ttk.Entry(attr_row, textvariable=self._unit_var, width=6)
         self._unit_entry.pack(side="left", padx=4)
         self._unit_var.trace_add("write", self._mark_dirty)
-        ttk.Label(attr_row, text="备注:").pack(side="left", padx=(8, 0))
+        self._notes_label = ttk.Label(attr_row, text=i18n.tr("calib.notes"), style="Muted.TLabel")
+        self._notes_label.pack(side="left", padx=(10, 0))
         self._notes_var = tk.StringVar()
         self._notes_entry = ttk.Entry(attr_row, textvariable=self._notes_var)
         self._notes_entry.pack(side="left", fill="x", expand=True, padx=4)
@@ -367,31 +462,47 @@ class PHCalibWidget(ttk.Frame):
 
         # ---- 实时电压 ----
         live_row = ttk.Frame(inner)
-        live_row.pack(fill="x", pady=4)
-        ttk.Label(live_row, text="当前电位:").pack(side="left")
+        live_row.pack(fill="x", pady=6)
+        self._live_caption = ttk.Label(live_row, text=i18n.tr("calib.current_potential"), style="Muted.TLabel")
+        self._live_caption.pack(side="left")
         self._live_label = ttk.Label(
             live_row,
             text="--.-- mV",
-            font=("", 12, "bold"),
-            foreground="#2980b9",
+            font=(MONO_FONT, 12, "bold"),
+            foreground=themes.current_tokens().secondary,
         )
-        self._live_label.pack(side="left", padx=4)
+        self._live_label.pack(side="left", padx=6)
 
         # ---- 输入区 ----
         input_row = ttk.Frame(inner)
         input_row.pack(fill="x")
-        ttk.Label(input_row, text="标准值:").pack(side="left")
+        self._std_label = ttk.Label(input_row, text=i18n.tr("calib.std_value"), style="Muted.TLabel")
+        self._std_label.pack(side="left")
         self._val_input = ttk.Spinbox(
             input_row, from_=-10, to=20, increment=0.1, format="%.2f", width=8
         )
         self._val_input.set(7.00)
         self._val_input.pack(side="left", padx=4)
-        ttk.Button(input_row, text="确认记录", command=self._confirm).pack(
-            side="left", padx=4
+        self._confirm_btn = ttk.Button(
+            input_row, text=i18n.tr("calib.confirm"), bootstyle="success", command=self._confirm
         )
-        ttk.Button(input_row, text="撤销", command=self._undo).pack(
-            side="left", padx=4
+        self._confirm_btn.pack(side="left", padx=4)
+        self._undo_btn = ttk.Button(
+            input_row, text=i18n.tr("common.undo"), bootstyle="outline", command=self._undo
         )
+        self._undo_btn.pack(side="left", padx=4)
+
+        # ---- 工作流引导 ----
+        flow_row = ttk.Frame(inner)
+        flow_row.pack(fill="x", pady=(8, 0))
+        self._ph_flow_caption = ttk.Label(
+            flow_row, text=i18n.tr("calib.flow") + ":", style="Subtle.TLabel"
+        )
+        self._ph_flow_caption.pack(side="left", padx=(0, 8))
+        self._flow = WorkflowHint(
+            flow_row, ["calib.ph_s1", "calib.ph_s2", "calib.ph_s3"]
+        )
+        self._flow.pack(side="left")
 
         # ---- 数据表 ----
         table_frame = ttk.Frame(inner)
@@ -402,8 +513,8 @@ class PHCalibWidget(ttk.Frame):
             show="headings",
             height=6,
         )
-        self._table.heading("val", text="标准值")
-        self._table.heading("mv", text="电位 (mV)")
+        self._table.heading("val", text=i18n.tr("calib.th_std"))
+        self._table.heading("mv", text=i18n.tr("calib.th_mv"))
         self._table.column("val", width=120, anchor="center")
         self._table.column("mv", width=120, anchor="center")
         self._table.pack(fill="both", expand=True, side="left")
@@ -413,21 +524,50 @@ class PHCalibWidget(ttk.Frame):
 
         # ---- 拟合结果 ----
         self._result_label = ttk.Label(
-            inner, text="尚未校准", font=("", 11, "bold")
+            inner, text=i18n.tr("calib.not_calibrated"), font=(UI_FONT, 10, "bold")
         )
         self._result_label.pack(anchor="w")
 
         # ---- 校准曲线图 ----
-        self._plot_widget = _PHCalibPlot(inner, title="电极校准曲线")
+        self._plot_widget = _PHCalibPlot(inner, title=i18n.tr("calib.electrode_curve"))
         self._plot_widget.pack(fill="both", expand=True, pady=4)
 
         # ---- 保存 ----
-        ttk.Button(inner, text="保存", command=self._save).pack(anchor="w", pady=(4, 0))
+        self._save_btn = ttk.Button(
+            inner, text=i18n.tr("common.save"), bootstyle="primary", command=self._save
+        )
+        self._save_btn.pack(anchor="w", pady=(6, 0))
 
         # ---- 连接实时数据 ----
         self._com.on("adc", self._on_adc)
         self._rebuild_combo()
         self._dirty = False
+
+        i18n.subscribe(self._apply_i18n)
+        themes.subscribe(self._apply_theme)
+
+    # ---- i18n / 主题 ----
+
+    def _apply_i18n(self) -> None:
+        self._electrode_label.config(text=i18n.tr("calib.electrode"))
+        self._unit_label.config(text=i18n.tr("calib.unit"))
+        self._notes_label.config(text=i18n.tr("calib.notes"))
+        self._live_caption.config(text=i18n.tr("calib.current_potential"))
+        self._std_label.config(text=i18n.tr("calib.std_value"))
+        self._confirm_btn.config(text=i18n.tr("calib.confirm"))
+        self._undo_btn.config(text=i18n.tr("common.undo"))
+        self._save_btn.config(text=i18n.tr("common.save"))
+        self._ph_flow_caption.config(text=i18n.tr("calib.flow") + ":")
+        self._table.heading("val", text=i18n.tr("calib.th_std"))
+        self._table.heading("mv", text=i18n.tr("calib.th_mv"))
+        _mvs, vals = self._get_points()
+        if len(vals) >= 2:
+            self._recalc()
+        else:
+            self._result_label.config(text=i18n.tr("calib.not_calibrated"))
+
+    def _apply_theme(self) -> None:
+        self._live_label.config(foreground=themes.current_tokens().secondary)
 
     # ---- 数据文件 ----
 
@@ -470,7 +610,7 @@ class PHCalibWidget(ttk.Frame):
 
     def _save_data(self) -> None:
         path = self._data_path()
-        # Load existing pump data, merge with electrode data
+        # 与既有泵数据合并保存
         _merge = {}
         if os.path.isfile(path):
             try:
@@ -534,7 +674,7 @@ class PHCalibWidget(ttk.Frame):
         name = self._electrode_combo.get()
         if not name or name not in self._data["electrodes"]:
             self._clear_table()
-            self._result_label.config(text="尚未校准")
+            self._result_label.config(text=i18n.tr("calib.not_calibrated"))
             self._plot_widget.clear()
             return
         e = self._data["electrodes"][name]
@@ -544,6 +684,7 @@ class PHCalibWidget(ttk.Frame):
         self._clear_table()
         for val, mv in e.get("points", []):
             self._table.insert("", "end", values=(f"{val:.2f}", f"{mv:.1f}"))
+        self._flow.set_active(1 if e.get("points") else 0)
         self._recalc()
 
     def _clear_table(self) -> None:
@@ -553,7 +694,9 @@ class PHCalibWidget(ttk.Frame):
     # ---- 电极管理 ----
 
     def _add_electrode(self) -> None:
-        name = simpledialog.askstring("添加电极", "电极名称:", parent=self)
+        name = simpledialog.askstring(
+            i18n.tr("calib.add_title"), i18n.tr("calib.add_name"), parent=self
+        )
         if not name or not name.strip():
             return
         name = name.strip()
@@ -577,6 +720,14 @@ class PHCalibWidget(ttk.Frame):
             return
         if len(self._data["electrodes"]) <= 1:
             return  # 至少保留一个
+        answer = Messagebox.yesno(
+            i18n.tr("confirm.del_elec_msg", name=name),
+            i18n.tr("confirm.del_elec_title"),
+            parent=self.winfo_toplevel(),
+            alert=True,
+        )
+        if answer != "Yes":
+            return
         del self._data["electrodes"][name]
         self._data["current"] = next(iter(self._data["electrodes"].keys()))
         self._rebuild_combo()
@@ -602,6 +753,7 @@ class PHCalibWidget(ttk.Frame):
         mv = self._current_mv
         self._table.insert("", "end", values=(f"{val:.2f}", f"{mv:.1f}"))
         self._dirty = True
+        self._flow.set_active(1)
         self._recalc()
 
     def _undo(self) -> None:
@@ -609,6 +761,7 @@ class PHCalibWidget(ttk.Frame):
         if items:
             self._table.delete(items[-1])
             self._dirty = True
+            self._flow.set_active(1 if self._table.get_children() else 0)
             self._recalc()
 
     # ---- 读取数据 ----
@@ -636,12 +789,18 @@ class PHCalibWidget(ttk.Frame):
         unit = self._unit_var.get() or "pX"
         self._plot_widget.set_ylabel(unit)
         if len(vals) < 2:
-            self._result_label.config(text="至少需要 2 个点")
+            self._result_label.config(text=i18n.tr("calib.need_two"))
             self._plot_widget.clear()
             return
         slope, intercept, r2 = _linreg(mvs, vals)
         self._result_label.config(
-            text=f"{unit} = {intercept:.4f} + ({slope:.6f}) × E(mV)  (R² = {r2:.6f})"
+            text=i18n.tr(
+                "calib.electrode_fit",
+                unit=unit,
+                intercept=f"{intercept:.4f}",
+                slope=f"{slope:.6f}",
+                r2=f"{r2:.6f}",
+            )
         )
         margin = max(20, (mvs.max() - mvs.min()) * 0.2)
         x_fit = np.linspace(mvs.min() - margin, mvs.max() + margin, 200)
@@ -670,9 +829,16 @@ class PHCalibWidget(ttk.Frame):
         }
         self._save_data()
         self._dirty = False
+        self._flow.set_active(2)
         self._result_label.config(
-            text=f"已保存 — {name}: {self._unit_var.get()} = {intercept:.4f} + "
-            f"({slope:.6f}) × E  (R² = {r2:.6f})"
+            text=i18n.tr(
+                "calib.saved_electrode",
+                name=name,
+                unit=self._unit_var.get(),
+                intercept=f"{intercept:.4f}",
+                slope=f"{slope:.6f}",
+                r2=f"{r2:.6f}",
+            )
         )
 
 
@@ -686,21 +852,36 @@ class _PHCalibPlot(_BlitPlot):
 
     def __init__(self, parent: tk.Misc, title: str = "", **kwargs) -> None:
         super().__init__(parent, title=title, **kwargs)
-        self._ax.set_xlabel("Potential (mV)")
+        self._ax.set_xlabel(i18n.tr("calib.th_mv"))
         self._ax.set_ylabel("pX")
-        self._ax.grid(True, alpha=0.3)
+        self._ax.grid(True, alpha=0.25)
 
-        # 散点
+        t = themes.current_tokens()
         self._scatter = self._ax.scatter(
-            [], [], c="#8e44ad", s=50, zorder=3
+            [], [], c=t.plot_scatter_ph, s=50, zorder=3
         )
-        # 拟合线
         (self._fit_line,) = self._ax.plot(
-            [], [], color="#e74c3c", linewidth=2, zorder=2
+            [], [], color=t.plot_fit, linewidth=2, zorder=2
         )
 
         self._artists = [self._fit_line, self._scatter]
         self._capture_bg()
+
+        i18n.subscribe(self._apply_i18n)
+        themes.subscribe(self._apply_theme)
+
+    def _apply_i18n(self) -> None:
+        self._ax.set_title(i18n.tr("calib.electrode_curve"))
+        self._ax.set_xlabel(i18n.tr("calib.th_mv"))
+        self._request_full_redraw()
+        self.refresh()
+
+    def _apply_theme(self) -> None:
+        t = themes.current_tokens()
+        self._scatter.set_facecolor(t.plot_scatter_ph)
+        self._fit_line.set_color(t.plot_fit)
+        self._request_full_redraw()
+        self.refresh()
 
     def set_ylabel(self, label: str) -> None:
         self._ax.set_ylabel(label)
@@ -747,12 +928,18 @@ class SpectralMatrixWidget(ttk.Frame):
     def __init__(self, parent: tk.Misc | None = None) -> None:
         super().__init__(parent)
         inner = ttk.Frame(self)
-        inner.pack(fill="both", expand=True, padx=8, pady=8)
+        inner.pack(fill="both", expand=True, padx=10, pady=10)
 
         from DataProcessor.reconstructor import is_available
 
+        self._matrix: np.ndarray | None = None
+
         if not is_available():
-            ttk.Label(inner, text="校准数据未加载").pack()
+            self._no_data_label = ttk.Label(
+                inner, text=i18n.tr("calib.matrix_not_loaded"), style="Muted.TLabel"
+            )
+            self._no_data_label.pack()
+            i18n.subscribe(self._apply_i18n)
             return
 
         # Load matrix from calibre.npz
@@ -764,27 +951,46 @@ class SpectralMatrixWidget(ttk.Frame):
             "F1(415)", "F2(445)", "F3(480)", "F4(515)", "F5(555)",
             "F6(590)", "F7(630)", "F8(680)", "Clear", "NIR(910)",
         ]
+        self._matrix = matrix
 
         # ---- 热力图 ----
         self._plot_widget = _MatrixPlot(
-            inner, title="光谱重建矩阵 (721λ × 10ch)"
+            inner, title=self._matrix_title(matrix)
         )
         self._plot_widget.pack(fill="both", expand=True)
         self._plot_widget.set_data(matrix, wls, ch_names)
 
         # ---- 说明 ----
-        info = ttk.Label(
+        self._info_label = ttk.Label(
             inner,
-            text=(
-                "每列对应一个 AS7341 通道 (F1–F8, Clear, NIR)，"
-                "每行对应一个波长 (380–1100 nm)。\n"
-                f"矩阵尺寸: {matrix.shape[0]}λ × {matrix.shape[1]}ch, "
-                f"值范围: [{matrix.min():.4f}, {matrix.max():.4f}]"
-            ),
-            wraplength=600,
-            font=("", 9),
+            text=self._matrix_info(matrix),
+            wraplength=640,
+            style="Subtle.TLabel",
         )
-        info.pack(fill="x", pady=(4, 0))
+        self._info_label.pack(fill="x", pady=(6, 0))
+
+        i18n.subscribe(self._apply_i18n)
+
+    @staticmethod
+    def _matrix_title(matrix: np.ndarray) -> str:
+        return i18n.tr("calib.matrix_title", wl=matrix.shape[0], ch=matrix.shape[1])
+
+    @staticmethod
+    def _matrix_info(matrix: np.ndarray) -> str:
+        return i18n.tr(
+            "calib.matrix_info",
+            rows=matrix.shape[0],
+            cols=matrix.shape[1],
+            vmin=f"{matrix.min():.4f}",
+            vmax=f"{matrix.max():.4f}",
+        )
+
+    def _apply_i18n(self) -> None:
+        if self._matrix is None:
+            self._no_data_label.config(text=i18n.tr("calib.matrix_not_loaded"))
+            return
+        self._plot_widget.set_title(self._matrix_title(self._matrix))
+        self._info_label.config(text=self._matrix_info(self._matrix))
 
 
 class _MatrixPlot(_BlitPlot):
@@ -792,10 +998,23 @@ class _MatrixPlot(_BlitPlot):
 
     def __init__(self, parent: tk.Misc, title: str = "", **kwargs) -> None:
         super().__init__(parent, title=title, **kwargs)
-        self._ax.set_xlabel("Channel")
-        self._ax.set_ylabel("Wavelength (nm)")
+        self._ax.set_xlabel(i18n.tr("calib.matrix_channel"))
+        self._ax.set_ylabel(i18n.tr("plot.wavelength"))
         self._img = None
         self._artists = []
+
+        i18n.subscribe(self._apply_i18n)
+
+    def _apply_i18n(self) -> None:
+        self._ax.set_xlabel(i18n.tr("calib.matrix_channel"))
+        self._ax.set_ylabel(i18n.tr("plot.wavelength"))
+        self._request_full_redraw()
+        self.refresh()
+
+    def set_title(self, title: str) -> None:
+        self._ax.set_title(title)
+        self._request_full_redraw()
+        self.refresh()
 
     def set_data(
         self,
@@ -803,7 +1022,7 @@ class _MatrixPlot(_BlitPlot):
         wls: np.ndarray,
         ch_names: list[str],
     ) -> None:
-        # transpose to (10, 721) so rows=channels, cols=wavelengths
+        # 转置为 (10, 721)：行=通道，列=波长
         data = matrix.T
         self._img = self._ax.imshow(
             data,
@@ -843,10 +1062,18 @@ class CalibrationTab(ttk.Frame):
         self._ph = PHCalibWidget(com, parent=self._tabs)
         self._matrix = SpectralMatrixWidget(parent=self._tabs)
 
-        self._tabs.add(self._pump1, text="进样泵")
-        self._tabs.add(self._pump2, text="滴定泵")
-        self._tabs.add(self._ph, text="电极校准")
-        self._tabs.add(self._matrix, text="光谱矩阵")
+        self._tabs.add(self._pump1, text=i18n.tr("calib.tab_pump1"))
+        self._tabs.add(self._pump2, text=i18n.tr("calib.tab_pump2"))
+        self._tabs.add(self._ph, text=i18n.tr("calib.tab_electrode"))
+        self._tabs.add(self._matrix, text=i18n.tr("calib.tab_matrix"))
+
+        i18n.subscribe(self._apply_i18n)
+
+    def _apply_i18n(self) -> None:
+        self._tabs.tab(0, text=i18n.tr("calib.tab_pump1"))
+        self._tabs.tab(1, text=i18n.tr("calib.tab_pump2"))
+        self._tabs.tab(2, text=i18n.tr("calib.tab_electrode"))
+        self._tabs.tab(3, text=i18n.tr("calib.tab_matrix"))
 
     @property
     def plots(self) -> list:

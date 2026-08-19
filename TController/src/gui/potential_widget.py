@@ -1,4 +1,4 @@
-"""电位–体积/滴定度实时曲线（含在线 EWMA 滤波，matplotlib blit 加速）。"""
+"""电位–体积/滴定度实时曲线（在线 EWMA 滤波，matplotlib blit 加速）。"""
 
 from __future__ import annotations
 
@@ -6,14 +6,18 @@ import tkinter as tk
 
 import numpy as np
 import ttkbootstrap as ttk
-from DataProcessor import PUMP_SLOPE
+from matplotlib.colors import to_rgb
 from matplotlib.patches import Polygon
 
+from DataProcessor import PUMP_SLOPE
+from gui import i18n, themes
 from gui._plot import _BlitPlot
 
 VREF = 3.3
 ADC_MAX = 65535
 ELECTRODE_OFFSET = 1.1
+
+_FILL_ALPHA = 0.14
 
 
 class _EWMA:
@@ -44,7 +48,7 @@ class PotentialWidget(_BlitPlot):
     """电位–体积/滴定度曲线（在线 EWMA 平滑）。"""
 
     def __init__(self, parent: tk.Misc, **kwargs) -> None:
-        super().__init__(parent, title="电位–体积 / Potential–Volume", **kwargs)
+        super().__init__(parent, title=i18n.tr("plot.potential"), **kwargs)
 
         self._titrating = False
         self._times: list[float] = []
@@ -64,7 +68,8 @@ class PotentialWidget(_BlitPlot):
         top = ttk.Frame(self)
         top.pack(fill="x", padx=8, pady=(4, 0))
 
-        ttk.Label(top, text="平滑 α:").pack(side="left")
+        self._alpha_label = ttk.Label(top, text=i18n.tr("plot.alpha"))
+        self._alpha_label.pack(side="left")
 
         self._alpha_var = tk.StringVar(value="0.15")
         self._alpha_spin = ttk.Spinbox(
@@ -79,32 +84,69 @@ class PotentialWidget(_BlitPlot):
         )
         self._alpha_spin.pack(side="left", padx=(4, 8))
 
-        self._info_label = ttk.Label(top, text="", foreground="#7f8c8d")
+        self._info_label = ttk.Label(top, text="", style="Muted.TLabel")
         self._info_label.pack(side="left")
 
         # ── 绘图区 ───────────────────────────────────────────────────
         self._canvas.get_tk_widget().pack(fill="both", expand=True)
-        self._ax.set_xlabel("Time (s)")
-        self._ax.set_ylabel("Potential (V)")
+        self._ax.set_xlabel(i18n.tr("plot.time"))
+        self._ax.set_ylabel(i18n.tr("plot.potential_v"))
         self._ax.set_xlim(0, 60)
         self._ax.set_ylim(-0.5, 1.5)
-        self._ax.grid(True, alpha=0.3)
+        self._ax.grid(True, alpha=0.25)
 
         # 平滑后主曲线
+        t = themes.current_tokens()
         (self._sm_curve,) = self._ax.plot(
-            [], [], color="#27ae60", linewidth=1.5
+            [], [], color=t.plot_potential, linewidth=1.5
         )
 
         # 填充区域
         self._fill = Polygon(
             np.zeros((0, 2)),
-            facecolor=(39 / 255, 174 / 255, 96 / 255, 0.16),
+            facecolor=self._fill_color(),
             edgecolor="none",
         )
         self._ax.add_patch(self._fill)
 
         self._artists = [self._fill, self._sm_curve]
         self._capture_bg()
+
+        self._overlay_key: str | None = None
+        i18n.subscribe(self._apply_i18n)
+        themes.subscribe(self._apply_theme)
+
+    # ── 空状态覆盖层 ───────────────────────────────────────
+
+    def set_overlay(self, key: str | None) -> None:
+        """按 i18n key 设置/清除空状态提示。"""
+        self._overlay_key = key
+        if key is None:
+            self.hide_overlay()
+        else:
+            self.show_overlay(i18n.tr(key))
+
+    # ── 主题 / 语言 ────────────────────────────────────────────
+
+    @staticmethod
+    def _fill_color() -> tuple:
+        t = themes.current_tokens()
+        return (*to_rgb(t.plot_potential), _FILL_ALPHA)
+
+    def _apply_i18n(self) -> None:
+        self._alpha_label.config(text=i18n.tr("plot.alpha"))
+        if self._overlay_visible and self._overlay_key:
+            self._overlay.config(text=i18n.tr(self._overlay_key))
+        self.refresh()
+
+    def _apply_theme(self) -> None:
+        t = themes.current_tokens()
+        self._sm_curve.set_color(t.plot_potential)
+        self._fill.set_facecolor(self._fill_color())
+        if self._endpoint_line is not None:
+            self._endpoint_line.set_color(t.plot_endpoint)
+        self._request_full_redraw()
+        self.refresh()
 
     # ── 控制 ────────────────────────────────────────────────────────
 
@@ -124,6 +166,7 @@ class PotentialWidget(_BlitPlot):
 
     def append(self, t: float, adc_raw: int, volume: float | None = None) -> None:
         v = adc_raw * VREF / ADC_MAX - ELECTRODE_OFFSET
+        self.hide_overlay()  # 有数据后移除空状态提示
         self._times.append(t)
         self._volts_raw.append(v)
         self._volts_sm.append(self._ewma(v))
@@ -151,13 +194,14 @@ class PotentialWidget(_BlitPlot):
         if self._endpoint_line is not None:
             self._endpoint_line.remove()
             self._endpoint_line = None
+        t = themes.current_tokens()
         self._endpoint_line = self._ax.axvline(
             x=1.0 if volume > 0 else 0,
-            color="#e74c3c",
+            color=t.plot_endpoint,
             linewidth=2,
             linestyle="--",
         )
-        self._ax.set_xlabel("Titration degree (T)")
+        self._ax.set_xlabel(i18n.tr("plot.degree"))
         self._ax.set_xlim(0, 2.5)
         if self._endpoint_line not in self._artists:
             self._artists.append(self._endpoint_line)
@@ -169,17 +213,17 @@ class PotentialWidget(_BlitPlot):
         # 标题和 Y 轴标签
         if self._cal_slope is not None:
             unit = self._cal_unit or "pX"
-            self._ax.set_title(f"{unit}–体积 / {unit}–Volume")
-            self._ax.set_ylabel(self._cal_unit or "pX")
+            self._ax.set_title(i18n.tr("plot.px", unit=unit))
+            self._ax.set_ylabel(unit)
         else:
-            self._ax.set_title("电位–体积 / Potential–Volume")
-            self._ax.set_ylabel("Potential (V)")
+            self._ax.set_title(i18n.tr("plot.potential"))
+            self._ax.set_ylabel(i18n.tr("plot.potential_v"))
 
         # X 轴标签
         if self._endpoint_volume is not None and self._endpoint_volume > 0:
-            self._ax.set_xlabel("Titration degree (T)")
+            self._ax.set_xlabel(i18n.tr("plot.degree"))
         else:
-            self._ax.set_xlabel("Time (s)")
+            self._ax.set_xlabel(i18n.tr("plot.time"))
 
         if not self._times:
             self._sm_curve.set_data([], [])
@@ -196,7 +240,7 @@ class PotentialWidget(_BlitPlot):
             x_vals = [v / self._endpoint_volume for v in self._volumes]
         elif self._titrating:
             x_vals = list(self._volumes)
-            self._ax.set_xlabel("Volume (mL)")
+            self._ax.set_xlabel(i18n.tr("plot.volume"))
         else:
             x_vals = list(self._times)
 
@@ -259,10 +303,13 @@ class PotentialWidget(_BlitPlot):
             self._endpoint_line = None
             if self._endpoint_line in self._artists:
                 self._artists.remove(self._endpoint_line)
-        self._ax.set_xlabel("Time (s)")
+        self._ax.set_xlabel(i18n.tr("plot.time"))
         self._ax.set_xlim(0, 5)
         self._sm_curve.set_data([], [])
         self._request_full_redraw()
 
     def shutdown(self) -> None:
         pass
+
+
+__all__ = ["PotentialWidget"]
