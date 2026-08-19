@@ -52,16 +52,13 @@ def _crc8(data: bytes) -> int:
 # ---- 上行帧类型 & 载荷长度 ----
 
 _UPLINK: dict[int, int] = {
-    0x01: 20,  # Spectral — 10 x uint16 LE
-    0x02: 6,  # ADC      — 2 x uint16 LE (ADC value + pump2_pos)
-    0x81: 0,  # ACK
-    0x82: 4,  # Pump1 done
-    0x83: 4,  # Pump2 done
-    0x84: 4,  # Pump1 stop report
-    0x85: 4,  # Pump2 stop report
-    0x86: 4,  # Pump1 progress report
-    0x87: 4,  # Pump2 progress report
-    0xFF: 0,  # NAK
+    0x00: 1,  # ACK       — echo_cmd(1)
+    0x01: 1,  # NAK       — echo_cmd(1)
+    0x10: 5,  # PumpPos   — pump_id(1) + position(4) LE
+    0x11: 5,  # PumpDone  — pump_id(1) + position(4) LE
+    0x20: 11,  # ADC      — sum(4) + samples(2) + shift(1) + pump2_pos(4)
+    0x30: 22,  # Spectral — 10 x uint16 LE + reserved(2)
+    0x40: 4,  # Heartbeat — uptime_ms(4)
 }
 
 # ---- 下行命令 & 参数长度 ----
@@ -92,7 +89,7 @@ class _Event:
     """通信事件，由后台线程写入队列，由 poll() 在主线程消费。"""
 
     kind: str
-    """事件类型：connected / disconnected / error / spectral / adc / ack / nak / pump_done / stop_rpt / pump1_progress / pump2_progress"""
+    """事件类型：connected / disconnected / error / spectral / adc / ack / nak / pump_done / pump1_progress / pump2_progress / heartbeat"""
 
     data: Any = None
     """事件数据，类型随 kind 变化。"""
@@ -228,57 +225,43 @@ class _SerialReader(threading.Thread):
 
     # ---- 帧分发 ----
 
+    @staticmethod
+    def _u32(payload: bytes, off: int) -> int:
+        return (
+            payload[off]
+            | (payload[off + 1] << 8)
+            | (payload[off + 2] << 16)
+            | (payload[off + 3] << 24)
+        )
+
     def _on_frame(self, typ: int, payload: bytes) -> None:
-        if typ == 0x01 and len(payload) == 20:
+        if typ == 0x00 and len(payload) == 1:
+            self._event_queue.put(_Event("ack", payload[0]))
+        elif typ == 0x01 and len(payload) == 1:
+            self._event_queue.put(_Event("nak", payload[0]))
+        elif typ == 0x10 and len(payload) == 5:
+            pump_id = payload[0]
+            pos = self._u32(payload, 1)
+            kind = "pump1_progress" if pump_id == 1 else "pump2_progress"
+            self._event_queue.put(_Event(kind, pos))
+        elif typ == 0x11 and len(payload) == 5:
+            pump_id = payload[0]
+            pos = self._u32(payload, 1)
+            self._event_queue.put(_Event("pump_done", (pump_id, pos)))
+        elif typ == 0x20 and len(payload) == 11:
+            acc = self._u32(payload, 0)
+            shift = payload[6]
+            val = (acc >> shift) & 0xFFFF
+            pos = self._u32(payload, 7)
+            self.adc_queue.append(val)
+            self._event_queue.put(_Event("adc", (val, pos)))
+        elif typ == 0x30 and len(payload) == 22:
+            # 前 20 字节为 F1..F8/Clear/NIR，末 2 字节保留
             vals = [payload[i] | (payload[i + 1] << 8) for i in range(0, 20, 2)]
             self.spectral_queue.append(vals)
             self._event_queue.put(_Event("spectral", vals))
-        elif typ == 0x02 and len(payload) == 6:
-            val = payload[0] | (payload[1] << 8)
-            pos = (
-                payload[2]
-                | (payload[3] << 8)
-                | (payload[4] << 16)
-                | (payload[5] << 24)
-            )
-            self.adc_queue.append(val)
-            self._event_queue.put(_Event("adc", (val, pos)))
-        elif typ == 0x81:
-            self._event_queue.put(_Event("ack"))
-        elif typ == 0xFF:
-            self._event_queue.put(_Event("nak"))
-        elif typ == 0x82 and len(payload) == 4:
-            pos = (
-                payload[0]
-                | (payload[1] << 8)
-                | (payload[2] << 16)
-                | (payload[3] << 24)
-            )
-            self._event_queue.put(_Event("pump_done", pos))
-        elif typ in (0x83, 0x84, 0x85) and len(payload) == 4:
-            pos = (
-                payload[0]
-                | (payload[1] << 8)
-                | (payload[2] << 16)
-                | (payload[3] << 24)
-            )
-            self._event_queue.put(_Event("stop_rpt", pos))
-        elif typ == 0x86 and len(payload) == 4:
-            pos = (
-                payload[0]
-                | (payload[1] << 8)
-                | (payload[2] << 16)
-                | (payload[3] << 24)
-            )
-            self._event_queue.put(_Event("pump1_progress", pos))
-        elif typ == 0x87 and len(payload) == 4:
-            pos = (
-                payload[0]
-                | (payload[1] << 8)
-                | (payload[2] << 16)
-                | (payload[3] << 24)
-            )
-            self._event_queue.put(_Event("pump2_progress", pos))
+        elif typ == 0x40 and len(payload) == 4:
+            self._event_queue.put(_Event("heartbeat", self._u32(payload, 0)))
 
     # ---- 线程主循环 ----
 
@@ -325,7 +308,7 @@ class ProtocolHandler:
         self._callbacks: dict[str, list[Callable[[Any], None]]] = {}
 
         # 单次回调（替代 Qt SingleShotConnection）
-        self._pump_done_once: Callable[[int], None] | None = None
+        self._pump_done_once: Callable[[tuple[int, int]], None] | None = None
 
         # ACK/NAK 重试
         self._pending_cmd: bytes | None = None
@@ -343,12 +326,19 @@ class ProtocolHandler:
         """注册事件回调。
 
         kind 取值：connected / disconnected / error / spectral / adc /
-        ack / nak / pump_done / stop_rpt / pump1_progress / pump2_progress
+        ack / nak / pump_done / pump1_progress / pump2_progress / heartbeat
+
+        pump_done 事件数据为 (pump_id, position) 元组。
         """
         self._callbacks.setdefault(kind, []).append(callback)
 
-    def request_pump_done_once(self, callback: Callable[[int], None]) -> None:
-        """注册单次 pump_done 回调（触发后自动清除，替代 SingleShotConnection）。"""
+    def request_pump_done_once(
+        self, callback: Callable[[tuple[int, int]], None]
+    ) -> None:
+        """注册单次 pump_done 回调（触发后自动清除，替代 SingleShotConnection）。
+
+        回调参数为 (pump_id, position) 元组。
+        """
         self._pump_done_once = callback
 
     # ---- 事件轮询（GUI 主线程调用）----
@@ -451,7 +441,7 @@ class ProtocolHandler:
 
     def send_heartbeat(self) -> None:
         """发送心跳帧，维持下位机看门狗（param=0x01 保持使能，复位超时计时器）。"""
-        self._reader.write(b"\xbb\x55\x05\x01\x46")
+        self._reader.write(self._build_downlink(0x05, bytes([0x01])))
 
     # ---- 带重试的命令发送 ----
 

@@ -27,9 +27,9 @@ namespace Protocol {
  *   0x00 ACK        data = [echo_cmd]
  *   0x01 NAK        data = [echo_cmd]
  *   0x10 PumpPos    data = [pump_id(1)] [pos(4)]
- *   0x11 PumpDone   data = [pump_id(1)]
- *   0x20 ADC        data = [sum(4)] [samples(2)] [shift(1)]
- *   0x30 Spectral   data = [F1(2)]...[F8(2)] [Clear(2)] [NIR(2)]  (22 bytes)
+ *   0x11 PumpDone   data = [pump_id(1)] [pos(4)]
+ *   0x20 ADC        data = [sum(4)] [samples(2)] [shift(1)] [pump2_pos(4)]
+ *   0x30 Spectral   data = [F1(2)]...[F8(2)] [Clear(2)] [NIR(2)] [reserved(2)]  (22 bytes)
  *   0x40 Heartbeat  data = [uptime_ms(4)]
  */
 class CommandDispatcher {
@@ -41,6 +41,8 @@ public:
         Device::SerialPort::initialize();
         g_lastHeartbeat = 0;
         g_heartbeatEnabled = false;
+        g_watchdogEnabled = false;
+        g_lastHeartbeatRx = 0;
     }
 
     /**
@@ -52,6 +54,15 @@ public:
         size_t n = Device::SerialPort::read(buf, sizeof(buf));
         for (size_t i = 0; i < n; ++i) {
             CommandParser<DispatcherHandler>::feed(buf[i]);
+        }
+
+        /** 看门狗：心跳超时 → 停泵（上位机断线保护） */
+        if (g_watchdogEnabled &&
+            Platform::SysTick_::elapsed(g_lastHeartbeatRx) >= WATCHDOG_TIMEOUT_MS) {
+            g_watchdogEnabled = false;
+            g_heartbeatEnabled = false;
+            Device::PumpMotor1::stop();
+            Device::PumpMotor2::stop();
         }
 
         /** 处理泵进度上报 */
@@ -67,17 +78,17 @@ public:
         /** 处理泵完成 */
         if (Device::PumpMotor1::isDone()) {
             Device::PumpMotor1::clearDone();
-            sendPumpDone(1);
+            sendPumpDone(1, Device::PumpMotor1::getPosition());
         }
         if (Device::PumpMotor2::isDone()) {
             Device::PumpMotor2::clearDone();
-            sendPumpDone(2);
+            sendPumpDone(2, Device::PumpMotor2::getPosition());
         }
 
         /** 处理 ADC 数据就绪 */
         if (Device::ADCOversample::isDataReady()) {
             auto r = Device::ADCOversample::readData();
-            sendADC(r);
+            sendADC(r, Device::PumpMotor2::getPosition());
         }
 
         /** 处理光谱数据就绪 */
@@ -128,10 +139,11 @@ private:
                 sendAck(cmd);
                 break;
             }
-            case 0x03: { /** FreeStop: pump_id(1) */
+            case 0x03: { /** FreeStop: pump_id(1), 0xFF=全部 */
                 if (len < 1) { sendNak(cmd); break; }
                 uint8_t id = param[0];
-                if (id == 1) Device::PumpMotor1::stop();
+                if (id == 0xFF) { Device::PumpMotor1::stop(); Device::PumpMotor2::stop(); }
+                else if (id == 1) Device::PumpMotor1::stop();
                 else if (id == 2) Device::PumpMotor2::stop();
                 else { sendNak(cmd); break; }
                 sendAck(cmd);
@@ -153,9 +165,12 @@ private:
                 sendAck(cmd);
                 break;
             }
-            case 0x05: { /** Heartbeat: 0x01=enable */
+            case 0x05: { /** Heartbeat: 0x01=使能看门狗+心跳上报，0x00=关闭 */
                 if (len < 1) { sendNak(cmd); break; }
-                g_heartbeatEnabled = (param[0] != 0);
+                bool en = (param[0] != 0);
+                g_heartbeatEnabled = en;
+                g_watchdogEnabled = en;
+                g_lastHeartbeatRx = Platform::SysTick_::tickMs();
                 sendAck(cmd);
                 break;
             }
@@ -219,26 +234,33 @@ private:
     /**
      * @brief 发送泵完成帧
      * @param id 泵编号
+     * @param pos 完成时的脉冲计数
      */
-    static void sendPumpDone(uint8_t id) noexcept {
-        uint8_t out[6];
+    static void sendPumpDone(uint8_t id, uint32_t pos) noexcept {
+        uint8_t data[5];
+        data[0] = id;
+        writeU32(data + 1, pos);
+        uint8_t out[9];
         size_t outLen;
-        FrameCodec::packUplink(0x11, &id, 1, out, &outLen);
+        FrameCodec::packUplink(0x11, data, 5, out, &outLen);
         Device::SerialPort::write(out, outLen);
     }
 
     /**
      * @brief 发送 ADC 数据帧
      * @param r 过采样结果
+     * @param pump2Pos 采样时刻泵 2 脉冲计数（供上位机体积同步）
      */
-    static void sendADC(const Device::ADCOversample::Result& r) noexcept {
-        uint8_t data[7];
+    static void sendADC(const Device::ADCOversample::Result& r,
+                        uint32_t pump2Pos) noexcept {
+        uint8_t data[11];
         writeU32(data, r.sum);
         writeU16(data + 4, r.samples);
         data[6] = r.shift;
-        uint8_t out[11];
+        writeU32(data + 7, pump2Pos);
+        uint8_t out[15];
         size_t outLen;
-        FrameCodec::packUplink(0x20, data, 7, out, &outLen);
+        FrameCodec::packUplink(0x20, data, 11, out, &outLen);
         Device::SerialPort::write(out, outLen);
     }
 
@@ -318,6 +340,11 @@ private:
 
     inline static volatile bool g_heartbeatEnabled{false};
     inline static volatile uint32_t g_lastHeartbeat{0};
+    inline static volatile bool g_watchdogEnabled{false};
+    inline static volatile uint32_t g_lastHeartbeatRx{0};
+
+    /** 看门狗超时：上位机心跳间隔 1s，5s 未收到判定断线 */
+    static constexpr uint32_t WATCHDOG_TIMEOUT_MS = 5000;
 };
 
 } // namespace Protocol
