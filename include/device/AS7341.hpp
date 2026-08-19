@@ -361,14 +361,24 @@ private:
      * @brief 等待 SMUXEN(bit4) 自清
      * @param timeoutMs 超时（毫秒）
      * @return true=SMUX 完成, false=超时或读失败
+     * 
+     * 最长阻塞 100ms，期间喂狗防止 IWDG 超时
      */
     static bool waitSmuxDone(uint32_t timeoutMs) noexcept {
         uint32_t t0 = Platform::SysTick_::tickMs();
+        Platform::IWDG_::reload();
         while (Platform::SysTick_::elapsed(t0) < timeoutMs) {
             uint8_t enable{};
-            if (!readRegSync(+Reg::ENABLE, &enable)) return false;
-            if ((enable & (1u << 4)) == 0) return true;
+            if (!readRegSync(+Reg::ENABLE, &enable)) {
+                Platform::IWDG_::reload();
+                return false;
+            }
+            if ((enable & (1u << 4)) == 0) {
+                Platform::IWDG_::reload();
+                return true;
+            }
         }
+        Platform::IWDG_::reload();
         return false;
     }
 
