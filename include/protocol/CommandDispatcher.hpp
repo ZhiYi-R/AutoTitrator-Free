@@ -139,8 +139,8 @@ private:
                 sendAck(cmd);
                 break;
             }
-            case 0x03: /** FreeStop */
-            case 0x04: { /** AbortAll (等价于 0x03，保留用于协议兼容): pump_id(1), 0xFF=全部 */
+            case 0x03: /** FreeStop: 正常停止，pump_id(1), 0xFF=全部 */
+            case 0x04: { /** AbortAll: 紧急停止，功能等价于 0x03 但语义不同，pump_id(1), 0xFF=全部 */
                 if (len < 1) { sendNak(cmd); break; }
                 uint8_t id = param[0];
                 if (id == 0xFF) {

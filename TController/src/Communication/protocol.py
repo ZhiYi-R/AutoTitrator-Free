@@ -421,9 +421,11 @@ class ProtocolHandler:
         self.send_cmd(0x02, bytes([pump_id]))
 
     def send_frestop(self, pump_id: int = 0xFF) -> None:
+        """正常停止泵（0x03）。"""
         self.send_cmd(0x03, bytes([pump_id]))
 
     def send_abort(self, pump_id: int = 0xFF) -> None:
+        """紧急停止泵（0x04），功能等价于 0x03 但语义用于异常情况。"""
         self.send_cmd(0x04, bytes([pump_id]))
 
     def send_reset(self) -> None:
