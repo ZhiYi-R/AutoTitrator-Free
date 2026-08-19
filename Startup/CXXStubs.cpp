@@ -44,31 +44,34 @@ static void restoreIrq(uint32_t primask) noexcept {
     __asm volatile("msr primask, %0" : : "r"(primask) : "memory");
 }
 
-/** 保存最近一次 __cxa_guard_acquire 的 PRIMASK，供 release/abort 恢复。
- *  单线程裸机中同一时刻只有一个静态对象在构造（因已关中断），全局变量足够。 */
-static uint32_t g_guardPrimask{0};
-
 int __cxa_guard_acquire(std::int64_t* g) {
     auto* p = reinterpret_cast<std::uint8_t*>(g);
-    g_guardPrimask = disableIrqSave();
+    uint32_t primask = disableIrqSave();
     if (*p == 0) {
-        *p = 1;  // 构造中
+        if (p[1] != 0) {
+            while (true) {
+            }
+        }
+        p[1] = 1;  // 构造中
+        p[2] = static_cast<std::uint8_t>(primask);
         return 1;
     }
-    restoreIrq(g_guardPrimask);
+    restoreIrq(primask);
     return 0;
 }
 
 void __cxa_guard_release(std::int64_t* g) {
     auto* p = reinterpret_cast<std::uint8_t*>(g);
     *p = 1;  // 已构造完成
-    restoreIrq(g_guardPrimask);
+    p[1] = 0;
+    restoreIrq(p[2]);
 }
 
 void __cxa_guard_abort(std::int64_t* g) {
     auto* p = reinterpret_cast<std::uint8_t*>(g);
     *p = 0;  // 重置
-    restoreIrq(g_guardPrimask);
+    p[1] = 0;
+    restoreIrq(p[2]);
 }
 
 }  // extern "C"
