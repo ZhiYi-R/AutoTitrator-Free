@@ -28,6 +28,8 @@ public:
      * @brief 初始化（同步 I2C，带重试）
      */
     static void initialize() noexcept {
+        g_ready = false;
+        g_error = false;
         HAL::I2C::initialize();
         HAL::I2C::setCompleteCallback(&onI2CComplete);
         HAL::I2C::setErrorCallback(&onI2CError);
@@ -41,11 +43,17 @@ public:
             Platform::SysTick_::delayMs(100);
 
             /** 验证 */
-            uint8_t en = readRegSyncVal(+Reg::ENABLE);
-            if (!(en & 0x01)) continue;
+            uint8_t en{};
+            if (!readRegSync(+Reg::ENABLE, &en) || !(en & 0x01)) {
+                HAL::I2C::recoverBus();
+                continue;
+            }
 
             /** 配置寄存器 */
-            writeRegSync(0x00, 0x30);
+            if (!writeRegSync(0x00, 0x30)) {
+                HAL::I2C::recoverBus();
+                continue;
+            }
             g_ready = true;
             return;
         }
@@ -56,7 +64,14 @@ public:
      * @brief 主循环服务（推进异步扫描状态机）
      */
     static void service() noexcept {
-        if (g_i2cBusy) return;
+        if (g_i2cBusy) {
+            if (Platform::SysTick_::elapsed(g_i2cStartedAt) < I2C_TIMEOUT_MS) return;
+            if (HAL::I2C::abortAndRecover()) {
+                g_i2cBusy = false;
+                g_ioDone = false;
+                g_error = true;
+            }
+        }
 
         /** I2C 出错：复位状态机，让主循环重新启动新一轮测量 */
         if (g_error) {
@@ -69,7 +84,11 @@ public:
 
         switch (g_seq) {
         case Sequence::SweepF1F4:
-            doStartSMUX(Device::AS7341_Reg::SMUX_F1F4);
+            if (!doStartSMUX(Device::AS7341_Reg::SMUX_F1F4)) {
+                HAL::I2C::recoverBus();
+                g_error = true;
+                return;
+            }
             g_seq = Sequence::SweepPoll;
             return;
 
@@ -84,16 +103,20 @@ public:
                 }
             }
             /** 异步读 STATUS_2 */
-            g_i2cBusy = true;
-            if (!HAL::I2C::readRegIT(+Reg::ADDR, +Reg::STATUS_2, g_rxBuf, 1)) {
-                g_i2cBusy = false;
+            if (HAL::I2C::readRegIT(+Reg::ADDR, +Reg::STATUS_2, g_rxBuf, 1)) {
+                g_i2cBusy = true;
+                g_i2cStartedAt = Platform::SysTick_::tickMs();
             }
             return;
 
         case Sequence::SweepReadPhase1:
             unpackPhase1();
             g_phase2 = true;
-            doStartSMUX(Device::AS7341_Reg::SMUX_F5F8);
+            if (!doStartSMUX(Device::AS7341_Reg::SMUX_F5F8)) {
+                HAL::I2C::recoverBus();
+                g_error = true;
+                return;
+            }
             g_seq = Sequence::SweepPoll;
             return;
 
@@ -144,7 +167,7 @@ public:
      * @brief 启动一轮光谱测量
      */
     static void startMeasurement() noexcept {
-        if (isBusy()) return;
+        if (!g_ready || isBusy()) return;
         g_dataValid = false;
         g_phase2 = false;
         g_seq = Sequence::SweepF1F4;
@@ -154,7 +177,11 @@ public:
      * @brief 读取光谱数据
      * @return 光谱测量结果
      */
-    static SpectralData readData() noexcept { return g_data; }
+    static SpectralData readData() noexcept {
+        SpectralData data = g_data;
+        g_dataValid = false;
+        return data;
+    }
 
     /** 配置（同步 I2C） */
 
@@ -282,10 +309,11 @@ private:
      * @brief 切换寄存器 Bank
      * @param bank Bank 编号（0 或 1）
      */
-    static void setBankSync(uint8_t bank) noexcept {
-        uint8_t d = readRegSyncVal(+Reg::CFG_0);
+    static bool setBankSync(uint8_t bank) noexcept {
+        uint8_t d{};
+        if (!readRegSync(+Reg::CFG_0, &d)) return false;
         d = (bank == 1) ? (d | (1 << 4)) : (d & ~(1 << 4));
-        writeRegSync(+Reg::CFG_0, d);
+        return writeRegSync(+Reg::CFG_0, d);
     }
 
     /** SMUX 配置 + 启动测量（同步） */
@@ -294,19 +322,34 @@ private:
      * @brief 写入 SMUX 配置并启动测量
      * @param smux SMUX 配置表（20 字节）
      */
-    static void doStartSMUX(const uint8_t* smux) noexcept {
+    static bool doStartSMUX(const uint8_t* smux) noexcept {
         g_ioDone = false;
-        writeRegSync(+Reg::CFG_0, 0);
-        writeRegSync(+Reg::ENABLE, readRegSyncVal(+Reg::ENABLE) & ~(1 << 1));
-        writeRegSync(0xAF, 0x10);
-        for (uint8_t i = 0; i < 20; ++i) {
-            writeRegSync(i, smux[i]);
+        if (!writeRegSync(+Reg::CFG_0, 0)) return false;
+
+        uint8_t enable{};
+        if (!readRegSync(+Reg::ENABLE, &enable) ||
+            !writeRegSync(+Reg::ENABLE, enable & ~(1 << 1)) ||
+            !writeRegSync(0xAF, 0x10)) {
+            return false;
         }
-        writeRegSync(+Reg::ENABLE, readRegSyncVal(+Reg::ENABLE) | (1 << 4));
-        setBankSync(1);
-        writeRegSync(+Reg::CONFIG, readRegSyncVal(+Reg::CONFIG) & ~3);
-        setBankSync(0);
-        writeRegSync(+Reg::ENABLE, readRegSyncVal(+Reg::ENABLE) | (1 << 1));
+        for (uint8_t i = 0; i < 20; ++i) {
+            if (!writeRegSync(i, smux[i])) return false;
+        }
+        if (!readRegSync(+Reg::ENABLE, &enable) ||
+            !writeRegSync(+Reg::ENABLE, enable | (1 << 4)) ||
+            !setBankSync(1)) {
+            return false;
+        }
+
+        uint8_t config{};
+        if (!readRegSync(+Reg::CONFIG, &config) ||
+            !writeRegSync(+Reg::CONFIG, config & ~3) ||
+            !setBankSync(0) ||
+            !readRegSync(+Reg::ENABLE, &enable) ||
+            !writeRegSync(+Reg::ENABLE, enable | (1 << 1))) {
+            return false;
+        }
+        return true;
     }
 
     /** 异步读通道数据 */
@@ -316,11 +359,10 @@ private:
      * @param next 读取完成后的下一状态
      */
     static void startReadCH(Sequence next) noexcept {
-        g_i2cBusy = true;
         if (HAL::I2C::readRegIT(+Reg::ADDR, +Reg::CH0_DATA_L, g_rxBuf, 12)) {
+            g_i2cBusy = true;
+            g_i2cStartedAt = Platform::SysTick_::tickMs();
             g_seq = next;
-        } else {
-            g_i2cBusy = false;
         }
     }
 
@@ -374,7 +416,10 @@ private:
     inline static uint16_t g_clear1{0};
     inline static uint16_t g_nir1{0};
     inline static volatile bool g_i2cBusy{false};
+    inline static volatile uint32_t g_i2cStartedAt{0};
     inline static volatile uint8_t g_rxBuf[12]{};
+
+    static constexpr uint32_t I2C_TIMEOUT_MS = 100;
 };
 
 } // namespace Device
