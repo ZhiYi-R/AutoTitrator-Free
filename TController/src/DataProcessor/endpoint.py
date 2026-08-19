@@ -210,8 +210,17 @@ class EndpointDetector:
             self._pot_d_vals.append(d_sm)
             if vol >= self.POT_OBSERVE_VOL:
                 arr = np.array(self._pot_d_vals)
+                if len(arr) < 3:
+                    # 数据点过少，无法可靠估计标准差
+                    self._pot_obs_done = False
+                    return
                 d_mean = float(np.mean(arr))
-                d_std = max(float(np.std(arr)), 1e-12)
+                d_std = float(np.std(arr, ddof=1))  # 使用样本标准差（Bessel 校正）
+                
+                # 防止标准差过小导致阈值过于敏感
+                # 使用相对噪声下限：至少为均值的 1% 或绝对下限 1e-6
+                d_std = max(d_std, abs(d_mean) * 0.01, 1e-6)
+                
                 enter = d_mean - max(self.POT_MIN_ENTER, self.POT_ENTER_SIGMA * d_std)
                 exit_ = d_mean - max(self.POT_MIN_EXIT, self.POT_EXIT_SIGMA * d_std)
                 self._pot_enter_th = enter
