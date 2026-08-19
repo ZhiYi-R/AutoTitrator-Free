@@ -1,6 +1,5 @@
 #pragma once
 
-#include "atomic.hpp"
 #include "concepts.hpp"
 #include "field.hpp"        // IWYU pragma: keep
 #include <concepts>
@@ -50,46 +49,59 @@ struct Register {
     }
 
     /**
-     * @brief 使用 LDREX/STREX 原子 RMW 写入字段
+     * @brief 在短 PRIMASK 临界区内写入字段
      */
     template <BitField Field>
         requires std::same_as<typename Field::ValueType, ValueType>
     static void Write(typename Field::ValueType value) noexcept {
-        volatile T* reg = reinterpret_cast<volatile T*>(Address);
-        T old_value;
-        T new_value;
-        do {
-            old_value = LoadExclusive(reg);
-            new_value = (old_value & ~Field::Mask())
-                      | ((static_cast<T>(value) << Field::PositionValue) & Field::Mask());
-        } while (!StoreExclusive(reg, new_value));
+        if constexpr (Field::Mask() == ~T{0}) {
+            Write(static_cast<T>(value));
+        } else {
+            uint32_t primask = DisableIrqSave();
+            T old_value = Read();
+            T new_value = (old_value & ~Field::Mask())
+                        | ((static_cast<T>(value) << Field::PositionValue) & Field::Mask());
+            Write(new_value);
+            RestoreIrq(primask);
+        }
     }
 
     /**
-     * @brief 使用 LDREX/STREX 原子 RMW 置位
+     * @brief 原子置位
      */
     static void Set(T bits) noexcept {
         Modify(bits, T{0});
     }
 
     /**
-     * @brief 使用 LDREX/STREX 原子 RMW 清零
+     * @brief 原子清零
      */
     static void Clear(T bits) noexcept {
         Modify(T{0}, bits);
     }
 
     /**
-     * @brief 使用 LDREX/STREX 原子 RMW 同时置位和清零
+     * @brief 在短 PRIMASK 临界区内同时置位和清零
      */
     static void Modify(T set_bits, T clear_bits) noexcept {
-        volatile T* reg = reinterpret_cast<volatile T*>(Address);
-        T old_value;
-        T new_value;
-        do {
-            old_value = LoadExclusive(reg);
-            new_value = (old_value & ~clear_bits) | set_bits;
-        } while (!StoreExclusive(reg, new_value));
+        uint32_t primask = DisableIrqSave();
+        T old_value = Read();
+        Write(static_cast<T>((old_value & ~clear_bits) | set_bits));
+        RestoreIrq(primask);
+    }
+
+private:
+    static uint32_t DisableIrqSave() noexcept {
+        uint32_t primask;
+        asm volatile("mrs %0, primask\n\tcpsid i"
+                     : "=r"(primask)
+                     :
+                     : "memory");
+        return primask;
+    }
+
+    static void RestoreIrq(uint32_t primask) noexcept {
+        asm volatile("msr primask, %0" : : "r"(primask) : "memory");
     }
 };
 
