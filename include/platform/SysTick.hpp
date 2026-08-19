@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <cortex-m3/NVIC.hpp>
+#include <cortex-m3/Control.hpp>
 #include <cortex-m3/SysTick.hpp>
 #include <cstdint>
 
@@ -26,6 +26,8 @@ public:
         /** AHB 72MHz → RELOAD = 72000 - 1 → 1ms 中断 */
         CortexM3::SysTick::STRVR::WriteRELOAD(72000 - 1);
         CortexM3::SysTick::STCVR::WriteCURRENT(0);
+        /** 系统异常优先级 15（最低），避免抢占 I2C/TIM4 关键时序 */
+        CortexM3::Control::SHPR3::WritePRI_15(0xF0);
         /** CLKSOURCE=1 (AHB), TICKINT=1 (中断), ENABLE=1 */
         CortexM3::SysTick::STCSR::Write(0x00000007);
     }
