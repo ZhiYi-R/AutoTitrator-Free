@@ -37,11 +37,11 @@ public:
             /** 等待预取缓冲使能 */
         }
 
-        /** 总线分频：AHB=/1, APB1=/2, APB2=/1, ADC=APB2/6 */
+        /** 总线分频：AHB=/1, APB1=/2, APB2=/1, ADC=APB2/6 → 12MHz */
         RCC::CFGR::WriteHPRE(0);     /** AHB = SYSCLK */
         RCC::CFGR::WritePPRE1(4);    /** APB1 = AHB/2 (0b100) */
         RCC::CFGR::WritePPRE2(0);    /** APB2 = AHB */
-        RCC::CFGR::WriteADCPRE(3);   /** ADC = APB2/6 (0b11) */
+        RCC::CFGR::WriteADCPRE(2);   /** ADC = APB2/6 (0b10)；0b11=/8 */
 
         /** PLL: HSE /1 → ×9 */
         RCC::CFGR::WritePLLSRC(1);   /** PLL source = HSE */
