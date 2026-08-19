@@ -49,6 +49,7 @@ public:
      */
     static void start(PumpMode mode, uint32_t maxCount = 0) noexcept {
         if (g_running) stop();
+        uint32_t primask = disableIrqSave();
         g_mode = mode;
         g_maxCount = maxCount;
         g_count = 0;
@@ -59,22 +60,33 @@ public:
         HAL::TIM::startPWM(Channel);
         HAL::TIM::enableTIM4();
         HAL::TIM::enableUpdateIRQ();
+        restoreIrq(primask);
     }
 
     /**
      * @brief 停止泵
      */
     static void stop() noexcept {
-        if (!g_running) return;
-        HAL::TIM::disableUpdateIRQ();
-        HAL::TIM::stopPWM(Channel);
-        /** 如果两个通道都停了，禁用主计数器 */
-        if constexpr (Channel == 1) {
-            if (!PumpMotor<2>::isRunning()) HAL::TIM::disableTIM4();
-        } else {
-            if (!PumpMotor<1>::isRunning()) HAL::TIM::disableTIM4();
+        uint32_t primask = disableIrqSave();
+        if (!g_running) {
+            restoreIrq(primask);
+            return;
         }
         g_running = false;
+        HAL::TIM::stopPWM(Channel);
+        /** UPDATE 中断和主计数器由两个通道共享，仅在全部停止后关闭。 */
+        if constexpr (Channel == 1) {
+            if (!PumpMotor<2>::isRunning()) {
+                HAL::TIM::disableUpdateIRQ();
+                HAL::TIM::disableTIM4();
+            }
+        } else {
+            if (!PumpMotor<1>::isRunning()) {
+                HAL::TIM::disableUpdateIRQ();
+                HAL::TIM::disableTIM4();
+            }
+        }
+        restoreIrq(primask);
     }
 
     /**
@@ -135,6 +147,19 @@ public:
     PumpMotor() = delete;
 
 private:
+    static uint32_t disableIrqSave() noexcept {
+        uint32_t primask;
+        __asm volatile("mrs %0, primask\n\tcpsid i"
+                       : "=r"(primask)
+                       :
+                       : "memory");
+        return primask;
+    }
+
+    static void restoreIrq(uint32_t primask) noexcept {
+        __asm volatile("msr primask, %0" : : "r"(primask) : "memory");
+    }
+
     inline static volatile bool g_running{false};
     inline static volatile bool g_done{false};
     inline static volatile bool g_reportPending{false};
