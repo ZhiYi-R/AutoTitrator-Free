@@ -1,6 +1,8 @@
 {
   "include": ["TController/src", "TController/scripts"],
   "pythonVersion": "3.12",
+  "venvPath": ".",
+  "venv": ".venv",
   "typeCheckingMode": "standard",
   "reportMissingTypeStubs": false,
   "executionEnvironments": [

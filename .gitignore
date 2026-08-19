@@ -50,5 +50,8 @@ build/
 tmp/
 temp/
 
+# 用户运行时偏好（含机器相关的 last_port 等）
+TController/data/settings.json
+
 # SCons
 .sconsign.dblite
