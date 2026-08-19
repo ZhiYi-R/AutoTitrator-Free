@@ -57,23 +57,26 @@ public:
     static bool isReady() noexcept { return g_ready; }
 
     /**
-     * @brief 查询数据是否就绪
-     * @return true=数据就绪
-     */
-    static bool isDataReady() noexcept { return g_dataReady; }
-
-    /**
      * @brief 启动一轮过采样
      */
     static void startMeasurement() noexcept {
+        uint32_t primask;
+        __asm volatile("mrs %0, primask\n\tcpsid i"
+                       : "=r"(primask)
+                       :
+                       : "memory");
         g_dataReady = false;
         g_acc = 0;
         g_count = 0;
+        __asm volatile("msr primask, %0" : : "r"(primask) : "memory");
     }
 
     /**
      * @brief 读取结果并自动续采
      * @return 过采样结果
+     *
+     * 注意：关中断区域内检查 g_dataReady，避免 isDataReady() 与 readData()
+     * 之间的竞态条件（ADC 中断可能在两者之间触发并修改 g_acc）
      */
     static Result readData() noexcept {
         Result r{};
@@ -82,6 +85,12 @@ public:
                        : "=r"(primask)
                        :
                        : "memory");
+        
+        if (!g_dataReady) {
+            __asm volatile("msr primask, %0" : : "r"(primask) : "memory");
+            return Result{0, 0, 0};
+        }
+        
         r.sum = g_acc;
         r.samples = OVERSAMPLE;
         r.shift = SHIFT;
@@ -90,14 +99,6 @@ public:
         g_count = 0;
         __asm volatile("msr primask, %0" : : "r"(primask) : "memory");
         return r;
-    }
-
-    /**
-     * @brief 归一化结果（sum >> shift → 16-bit）
-     * @return 16-bit 归一化结果
-     */
-    static uint16_t readNormalized() noexcept {
-        return static_cast<uint16_t>(g_acc >> SHIFT);
     }
 
     /**

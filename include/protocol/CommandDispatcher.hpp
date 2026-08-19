@@ -86,8 +86,8 @@ public:
         }
 
         /** 处理 ADC 数据就绪 */
-        if (Device::ADCOversample::isDataReady()) {
-            auto r = Device::ADCOversample::readData();
+        auto r = Device::ADCOversample::readData();
+        if (r.samples > 0) {
             sendADC(r, Device::PumpMotor2::getPosition());
         }
 
