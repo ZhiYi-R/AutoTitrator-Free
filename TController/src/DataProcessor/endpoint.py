@@ -360,7 +360,7 @@ class EndpointDetector:
             return None
         # 合理性校验：AMPD 结果不应位于缓冲区最后 25% 位置
         # （说明导数还在下降或刚过拐点，未充分恢复）
-        if idx >= len(self._pot_vol_buf) * 0.85:
+        if idx >= len(self._pot_vol_buf) * 0.75:
             return None
         refined_vol = self._pot_vol_buf[idx]
         # 更新 _pot_ep_vol
