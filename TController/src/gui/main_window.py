@@ -117,7 +117,8 @@ class MainWindow(ttk.Frame):
         self._adc_counter = 0
 
         # ---- 数据记录 ----
-        self._recording = False
+        saved_rec = load_settings().get("record", True)
+        self._recording = saved_rec
         self._rec_spectral: list[tuple[float, list[int]]] = []
         self._rec_recon: list[tuple[float, np.ndarray]] = []
         self._rec_recon_wls: np.ndarray | None = None
@@ -128,7 +129,7 @@ class MainWindow(ttk.Frame):
         # ---- UI ----
         self._theme_mode = theme_mode if theme_mode in themes.MODES else "system"
         self._connected = False
-        self._rec_var = tk.BooleanVar(value=True)
+        self._rec_var = tk.BooleanVar(value=saved_rec)
         self._group_captions: list[tuple[ttk.Label, str]] = []
         self._build_toolbar()
         # 状态栏先于中央区打包（side=bottom），确保窗口高度不足时不被挤压
