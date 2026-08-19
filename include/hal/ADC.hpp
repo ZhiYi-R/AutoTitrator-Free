@@ -47,7 +47,7 @@ public:
         ADC1::CR2::WriteCONT(0);       /** 单次转换 */
         ADC1::CR2::WriteALIGN(0);      /** 右对齐 */
         ADC1::CR2::WriteEXTTRIG(1);    /** 外部触发使能 */
-        ADC1::CR2::WriteEXTSEL(0);     /** TIM3_TRGO (0b000) */
+        ADC1::CR2::WriteEXTSEL(4);     /** TIM3_TRGO (0b100)；000=TIM1_CC1 */
 
         /** 通道 0 采样时间 1.5 cycle (SMPR2.SMP0 = 0b000) */
         ADC1::SMPR2::Write(0); /** 全部 1.5 cycle */
