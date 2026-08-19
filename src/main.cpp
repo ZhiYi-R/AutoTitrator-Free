@@ -7,6 +7,7 @@
 #include <device/AS7341.hpp>
 #include <device/PumpMotor.hpp>
 #include <hal/GPIO.hpp>
+#include <platform/IWDG.hpp>
 #include <platform/NVIC.hpp>
 #include <platform/SysTick.hpp>
 #include <platform/SystemClock.hpp>
@@ -32,7 +33,10 @@ extern "C" int main() {  // NOLINT(clang-diagnostic-main) 裸机 main 由 Reset_
     /** 4. 启动首轮光谱测量 */
     Device::AS7341::startMeasurement();
 
-    /** 5. 主循环 */
+    /** 5. 启动独立看门狗（~5s 超时，必须在主循环中周期性喂狗） */
+    Platform::IWDG_::initialize();
+
+    /** 6. 主循环 */
     while (true) {
         Protocol::CommandDispatcher::service();
         Device::AS7341::service();
@@ -42,5 +46,8 @@ extern "C" int main() {  // NOLINT(clang-diagnostic-main) 裸机 main 由 Reset_
         if (!Device::AS7341::isBusy() && !Device::AS7341::isDataValid()) {
             Device::AS7341::startMeasurement();
         }
+
+        /** 喂狗：主循环每轮刷新看门狗计数器 */
+        Platform::IWDG_::reload();
     }
 }
