@@ -42,9 +42,7 @@ public:
      */
     static void initialize() noexcept {
         using namespace STM32F103;
-        /** 启动 IWDG（写 0xCCCC 到 KR） */
-        IWDG::KR::Write(KEY_START);
-        /** 使能寄存器写访问 */
+        /** 写访问 → 配置 PR/RLR → 喂狗加载 → 再启动（RM0008 推荐顺序） */
         IWDG::KR::Write(KEY_WRITE_ACCESS);
         /** 设置预分频（等待 PVU 清除） */
         IWDG::PR::WritePR(PRESCALER);
@@ -58,6 +56,8 @@ public:
         }
         /** 首次喂狗，加载计数器 */
         IWDG::KR::Write(KEY_RELOAD);
+        /** 启动 IWDG（写 0xCCCC 到 KR）；启动后不可关闭 */
+        IWDG::KR::Write(KEY_START);
     }
 
     /**
