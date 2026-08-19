@@ -146,7 +146,8 @@ class MainWindow(ttk.Frame):
         # ---- 定时器（root.after 递归调度）----
         self._running = True
         self._heartbeat_active = False
-        self._schedule_after(80, self._refresh_plots)
+        # 100ms 刷新间隔（10fps）：电位曲线足够流畅，CPU 占用比 80ms 低 20%
+        self._schedule_after(100, self._refresh_plots)
         self._schedule_after(2000, self._scan_ports)
         self._scan_ports()
         self._schedule_after(500, self._run_detection)

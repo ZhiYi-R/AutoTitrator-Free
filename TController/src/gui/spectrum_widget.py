@@ -20,8 +20,8 @@ class SpectrumWidget(_BlitPlot):
     def __init__(self, parent: tk.Misc, **kwargs) -> None:
         super().__init__(parent, title=i18n.tr("plot.spectrum"), **kwargs)
 
-        self._ax.set_xlabel(i18n.tr("plot.wavelength"))
-        self._ax.set_ylabel(i18n.tr("plot.intensity"))
+        self._set_xlabel(i18n.tr("plot.wavelength"))
+        self._set_ylabel(i18n.tr("plot.intensity"))
         self._ax.set_xlim(380, 1000)
         self._ax.set_ylim(0, 1)
         self._ax.grid(True, alpha=0.25)
@@ -65,10 +65,9 @@ class SpectrumWidget(_BlitPlot):
         return (*to_rgb(t.plot_spectrum), _FILL_ALPHA)
 
     def _apply_i18n(self) -> None:
-        self._ax.set_title(i18n.tr("plot.spectrum"))
-        self._ax.set_xlabel(i18n.tr("plot.wavelength"))
-        self._ax.set_ylabel(i18n.tr("plot.intensity"))
-        self._request_full_redraw()
+        self._set_title(i18n.tr("plot.spectrum"))
+        self._set_xlabel(i18n.tr("plot.wavelength"))
+        self._set_ylabel(i18n.tr("plot.intensity"))
         self.refresh()
         if self._overlay_visible and self._overlay_key:
             self._overlay.config(text=i18n.tr(self._overlay_key))
@@ -98,11 +97,11 @@ class SpectrumWidget(_BlitPlot):
             )
             self._fill.set_xy(verts)
 
-        # 自动 Y 范围
+        # 自动 Y 范围（量化到 0.05 精度，减少 full redraw 频率）
         y_max = float(np.max(spectrum)) if len(spectrum) > 0 else 1.0
         if y_max > 0:
-            new_ylim = (0, y_max * 1.15)
-            if new_ylim != self._ax.get_ylim():
+            new_ylim = (0, round(y_max * 1.15 / 0.05) * 0.05)
+            if new_ylim != tuple(self._ax.get_ylim()):
                 self._ax.set_ylim(new_ylim)
                 self._request_full_redraw()
 

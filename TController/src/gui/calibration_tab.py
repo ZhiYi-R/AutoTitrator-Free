@@ -348,8 +348,8 @@ class _PumpCalibPlot(_BlitPlot):
 
     def __init__(self, parent: tk.Misc, title: str = "", **kwargs) -> None:
         super().__init__(parent, title=title, **kwargs)
-        self._ax.set_xlabel(i18n.tr("calib.th_pulses"))
-        self._ax.set_ylabel(i18n.tr("calib.th_volume"))
+        self._set_xlabel(i18n.tr("calib.th_pulses"))
+        self._set_ylabel(i18n.tr("calib.th_volume"))
         self._ax.grid(True, alpha=0.25)
 
         t = themes.current_tokens()
@@ -367,14 +367,12 @@ class _PumpCalibPlot(_BlitPlot):
         themes.subscribe(self._apply_theme)
 
     def set_title(self, title: str) -> None:
-        self._ax.set_title(title)
-        self._request_full_redraw()
+        self._set_title(title)
         self.refresh()
 
     def _apply_i18n(self) -> None:
-        self._ax.set_xlabel(i18n.tr("calib.th_pulses"))
-        self._ax.set_ylabel(i18n.tr("calib.th_volume"))
-        self._request_full_redraw()
+        self._set_xlabel(i18n.tr("calib.th_pulses"))
+        self._set_ylabel(i18n.tr("calib.th_volume"))
         self.refresh()
 
     def _apply_theme(self) -> None:
@@ -852,8 +850,8 @@ class _PHCalibPlot(_BlitPlot):
 
     def __init__(self, parent: tk.Misc, title: str = "", **kwargs) -> None:
         super().__init__(parent, title=title, **kwargs)
-        self._ax.set_xlabel(i18n.tr("calib.th_mv"))
-        self._ax.set_ylabel("pX")
+        self._set_xlabel(i18n.tr("calib.th_mv"))
+        self._set_ylabel("pX")
         self._ax.grid(True, alpha=0.25)
 
         t = themes.current_tokens()
@@ -871,9 +869,8 @@ class _PHCalibPlot(_BlitPlot):
         themes.subscribe(self._apply_theme)
 
     def _apply_i18n(self) -> None:
-        self._ax.set_title(i18n.tr("calib.electrode_curve"))
-        self._ax.set_xlabel(i18n.tr("calib.th_mv"))
-        self._request_full_redraw()
+        self._set_title(i18n.tr("calib.electrode_curve"))
+        self._set_xlabel(i18n.tr("calib.th_mv"))
         self.refresh()
 
     def _apply_theme(self) -> None:
@@ -884,8 +881,7 @@ class _PHCalibPlot(_BlitPlot):
         self.refresh()
 
     def set_ylabel(self, label: str) -> None:
-        self._ax.set_ylabel(label)
-        self._request_full_redraw()
+        self._set_ylabel(label)
 
     def update_data(
         self,
@@ -998,22 +994,20 @@ class _MatrixPlot(_BlitPlot):
 
     def __init__(self, parent: tk.Misc, title: str = "", **kwargs) -> None:
         super().__init__(parent, title=title, **kwargs)
-        self._ax.set_xlabel(i18n.tr("calib.matrix_channel"))
-        self._ax.set_ylabel(i18n.tr("plot.wavelength"))
+        self._set_xlabel(i18n.tr("calib.matrix_channel"))
+        self._set_ylabel(i18n.tr("plot.wavelength"))
         self._img = None
         self._artists = []
 
         i18n.subscribe(self._apply_i18n)
 
     def _apply_i18n(self) -> None:
-        self._ax.set_xlabel(i18n.tr("calib.matrix_channel"))
-        self._ax.set_ylabel(i18n.tr("plot.wavelength"))
-        self._request_full_redraw()
+        self._set_xlabel(i18n.tr("calib.matrix_channel"))
+        self._set_ylabel(i18n.tr("plot.wavelength"))
         self.refresh()
 
     def set_title(self, title: str) -> None:
-        self._ax.set_title(title)
-        self._request_full_redraw()
+        self._set_title(title)
         self.refresh()
 
     def set_data(

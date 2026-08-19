@@ -89,8 +89,8 @@ class PotentialWidget(_BlitPlot):
 
         # ── 绘图区 ───────────────────────────────────────────────────
         self._canvas.get_tk_widget().pack(fill="both", expand=True)
-        self._ax.set_xlabel(i18n.tr("plot.time"))
-        self._ax.set_ylabel(i18n.tr("plot.potential_v"))
+        self._set_xlabel(i18n.tr("plot.time"))
+        self._set_ylabel(i18n.tr("plot.potential_v"))
         self._ax.set_xlim(0, 60)
         self._ax.set_ylim(-0.5, 1.5)
         self._ax.grid(True, alpha=0.25)
@@ -137,6 +137,7 @@ class PotentialWidget(_BlitPlot):
         self._alpha_label.config(text=i18n.tr("plot.alpha"))
         if self._overlay_visible and self._overlay_key:
             self._overlay.config(text=i18n.tr(self._overlay_key))
+        # refresh 内部会通过 _set_title/_set_xlabel/_set_ylabel 缓存写入
         self.refresh()
 
     def _apply_theme(self) -> None:
@@ -201,7 +202,7 @@ class PotentialWidget(_BlitPlot):
             linewidth=2,
             linestyle="--",
         )
-        self._ax.set_xlabel(i18n.tr("plot.degree"))
+        self._set_xlabel(i18n.tr("plot.degree"))
         self._ax.set_xlim(0, 2.5)
         if self._endpoint_line not in self._artists:
             self._artists.append(self._endpoint_line)
@@ -210,28 +211,29 @@ class PotentialWidget(_BlitPlot):
     # ── 刷新 ────────────────────────────────────────────────────────
 
     def refresh(self) -> None:
-        # 标题和 Y 轴标签
+        # 标题和 Y 轴标签（缓存写入，仅变化时触发 full redraw）
         if self._cal_slope is not None:
             unit = self._cal_unit or "pX"
-            self._ax.set_title(i18n.tr("plot.px", unit=unit))
-            self._ax.set_ylabel(unit)
+            self._set_title(i18n.tr("plot.px", unit=unit))
+            self._set_ylabel(unit)
         else:
-            self._ax.set_title(i18n.tr("plot.potential"))
-            self._ax.set_ylabel(i18n.tr("plot.potential_v"))
+            self._set_title(i18n.tr("plot.potential"))
+            self._set_ylabel(i18n.tr("plot.potential_v"))
 
         # X 轴标签
         if self._endpoint_volume is not None and self._endpoint_volume > 0:
-            self._ax.set_xlabel(i18n.tr("plot.degree"))
+            self._set_xlabel(i18n.tr("plot.degree"))
         else:
-            self._ax.set_xlabel(i18n.tr("plot.time"))
+            self._set_xlabel(i18n.tr("plot.time"))
 
         if not self._times:
             self._sm_curve.set_data([], [])
-            if self._cal_slope is not None:
-                self._ax.set_ylim(0, 14)
-            else:
-                self._ax.set_ylim(-0.5, 1.5)
-            self._request_full_redraw()
+            # 空数据：仅在首次或校准状态变化时全量重绘，避免未连接时
+            # 每 80ms 都 canvas.draw()（原实现每帧 _request_full_redraw）
+            target_ylim = (0, 14) if self._cal_slope is not None else (-0.5, 1.5)
+            if tuple(self._ax.get_ylim()) != target_ylim:
+                self._ax.set_ylim(target_ylim)
+                self._request_full_redraw()
             self._blit()
             return
 
@@ -240,7 +242,7 @@ class PotentialWidget(_BlitPlot):
             x_vals = [v / self._endpoint_volume for v in self._volumes]
         elif self._titrating:
             x_vals = list(self._volumes)
-            self._ax.set_xlabel(i18n.tr("plot.volume"))
+            self._set_xlabel(i18n.tr("plot.volume"))
         else:
             x_vals = list(self._times)
 
@@ -266,26 +268,31 @@ class PotentialWidget(_BlitPlot):
             )
             self._fill.set_xy(verts)
 
-        # Y 范围（基于平滑值）
+        # Y 范围（整数对齐量化，减少 full redraw 触发频率）
         if len(y_sm) > 0:
             y_min = min(y_sm)
             y_max = max(y_sm)
             if y_max > y_min:
                 padding = max(0.1, (y_max - y_min) * 0.15)
-                new_ylim = (y_min - padding, y_max + padding)
-                if new_ylim != self._ax.get_ylim():
+                # 量化到 0.1 精度：数据小幅波动不再触发 set_ylim
+                new_ylim = (
+                    round(y_min - padding, 1),
+                    round(y_max + padding, 1),
+                )
+                if new_ylim != tuple(self._ax.get_ylim()):
                     self._ax.set_ylim(new_ylim)
                     self._request_full_redraw()
 
-        # X 范围
+        # X 范围（整数对齐量化）
         if len(x_vals) > 0:
             x_max = max(x_vals) * 1.15
             if self._endpoint_volume is not None and self._endpoint_volume > 0:
                 x_max = max(x_max, 1.0)
             else:
                 x_max = max(x_max, 0.5)
-            new_xlim = (0, x_max)
-            if new_xlim != self._ax.get_xlim():
+            # 量化到 0.5 精度：滴定中体积缓慢增长，不再每帧触发 set_xlim
+            new_xlim = (0, round(x_max * 2) / 2)
+            if new_xlim != tuple(self._ax.get_xlim()):
                 self._ax.set_xlim(new_xlim)
                 self._request_full_redraw()
 
@@ -303,7 +310,7 @@ class PotentialWidget(_BlitPlot):
             self._endpoint_line = None
             if self._endpoint_line in self._artists:
                 self._artists.remove(self._endpoint_line)
-        self._ax.set_xlabel(i18n.tr("plot.time"))
+        self._set_xlabel(i18n.tr("plot.time"))
         self._ax.set_xlim(0, 5)
         self._sm_curve.set_data([], [])
         self._request_full_redraw()
