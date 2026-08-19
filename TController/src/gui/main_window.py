@@ -735,6 +735,14 @@ class MainWindow(ttk.Frame):
         # AMPD 在 T=2 统一执行，无需中间标记
         self._pump1_volume = 0.0
         self._pump2_volume = 0.0
+        # 清空记录缓冲区，防止上次滴定数据混入
+        if self._recording:
+            self._rec_spectral.clear()
+            self._rec_recon.clear()
+            self._rec_recon_wls = None
+            self._rec_potential.clear()
+            self._rec_raw_adc.clear()
+            self._rec_ewma_v = None
         try:
             vol_ml = float(self._vol_spin.get())
         except (ValueError, tk.TclError):
