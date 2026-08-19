@@ -60,15 +60,15 @@ public:
         /** 使能外设 */
         I2C1::CR1::WritePE(1);
 
-        /** 使能事件 + 错误中断 */
-        I2C1::CR2::WriteITEVTEN(1);
-        I2C1::CR2::WriteITBUFEN(1);
-        I2C1::CR2::WriteITERREN(1);
+        /** 异步传输开始时再使能中断；同步轮询期间必须保持关闭。 */
+        I2C1::CR2::WriteITEVTEN(0);
+        I2C1::CR2::WriteITBUFEN(0);
+        I2C1::CR2::WriteITERREN(0);
 
-        /** NVIC：I2C1_EV + I2C1_ER 优先级 2 */
-        Platform::NVIC_::setPriority(Platform::NVIC_::IRQn::I2C1_EV, 2);
+        /** NVIC：AN2824 要求 I2C 事件不可被应用中断抢占 */
+        Platform::NVIC_::setPriority(Platform::NVIC_::IRQn::I2C1_EV, 0);
         Platform::NVIC_::enableIRQ(Platform::NVIC_::IRQn::I2C1_EV);
-        Platform::NVIC_::setPriority(Platform::NVIC_::IRQn::I2C1_ER, 2);
+        Platform::NVIC_::setPriority(Platform::NVIC_::IRQn::I2C1_ER, 0);
         Platform::NVIC_::enableIRQ(Platform::NVIC_::IRQn::I2C1_ER);
 
         g_initialized = true;
@@ -90,24 +90,27 @@ public:
     static bool writeRegSync(uint8_t addr7, uint8_t reg, const uint8_t* data,
                              size_t len, uint32_t timeoutMs) noexcept {
         using namespace STM32F103;
+        if (g_busy || (len > 0 && data == nullptr)) return false;
         uint32_t t0 = Platform::SysTick_::tickMs();
+        if (!waitBusIdle(t0, timeoutMs)) return false;
 
         /** START */
+        I2C1::CR1::WritePOS(0);
         I2C1::CR1::WriteACK(1);
         I2C1::CR1::WriteSTART(1);
         if (!waitEvent(I2C1::SR1::ReadSB, t0, timeoutMs)) return false;
 
         /** 地址 + W */
-        I2C1::DR::WriteDR(addr7 << 1);
+        I2C1::DR::Write(addr7 << 1);
         if (!waitAddrCleared(t0, timeoutMs)) return false;
 
         /** 寄存器地址 */
-        I2C1::DR::WriteDR(reg);
+        I2C1::DR::Write(reg);
         if (!waitEvent(I2C1::SR1::ReadTxE, t0, timeoutMs)) return false;
 
         /** 数据 */
         for (size_t i = 0; i < len; ++i) {
-            I2C1::DR::WriteDR(data[i]);
+            I2C1::DR::Write(data[i]);
             if (!waitEvent(I2C1::SR1::ReadTxE, t0, timeoutMs)) return false;
         }
 
@@ -116,7 +119,7 @@ public:
 
         /** STOP */
         I2C1::CR1::WriteSTOP(1);
-        return true;
+        return waitStopCleared(t0, timeoutMs);
     }
 
     /**
@@ -144,27 +147,31 @@ public:
     static bool readRegSync(uint8_t addr7, uint8_t reg, uint8_t* buf, size_t len,
                             uint32_t timeoutMs) noexcept {
         using namespace STM32F103;
+        if (g_busy || (len > 0 && buf == nullptr)) return false;
         if (len == 0) return true;
         uint32_t t0 = Platform::SysTick_::tickMs();
+        if (!waitBusIdle(t0, timeoutMs)) return false;
 
         /** START */
+        I2C1::CR1::WritePOS(0);
+        I2C1::CR1::WriteACK(1);
         I2C1::CR1::WriteSTART(1);
         if (!waitEvent(I2C1::SR1::ReadSB, t0, timeoutMs)) return false;
 
         /** 地址 + W（写寄存器地址阶段） */
-        I2C1::DR::WriteDR(addr7 << 1);
+        I2C1::DR::Write(addr7 << 1);
         if (!waitAddrCleared(t0, timeoutMs)) return false;
 
         /** 寄存器地址 */
-        I2C1::DR::WriteDR(reg);
-        if (!waitEvent(I2C1::SR1::ReadTxE, t0, timeoutMs)) return false;
+        I2C1::DR::Write(reg);
+        if (!waitEvent(I2C1::SR1::ReadBTF, t0, timeoutMs)) return false;
 
         /** RESTART */
         I2C1::CR1::WriteSTART(1);
         if (!waitEvent(I2C1::SR1::ReadSB, t0, timeoutMs)) return false;
 
         /** 地址 + R */
-        I2C1::DR::WriteDR((addr7 << 1) | 1);
+        I2C1::DR::Write((addr7 << 1) | 1);
 
         /**
          * 单字节读（RM0008 EV6_1）：
@@ -179,36 +186,52 @@ public:
         if (len == 1) {
             if (!waitEvent(I2C1::SR1::ReadADDR, t0, timeoutMs)) return false;
             I2C1::CR1::WriteACK(0);  /** NACK 当前字节（POS=0） */
+            uint32_t primask = disableIrqSave();
             (void)I2C1::SR2::Read(); /** 清 ADDR */
-            I2C1::CR1::WriteSTOP(1); /** 紧接着产生 STOP */
+            I2C1::CR1::WriteSTOP(1); /** EV6_3 必须在当前字节结束前完成 */
+            restoreIrq(primask);
             if (!waitEvent(I2C1::SR1::ReadRxNE, t0, timeoutMs)) return false;
             buf[0] = static_cast<uint8_t>(I2C1::DR::ReadDR());
         } else if (len == 2) {
             I2C1::CR1::WritePOS(1);
             I2C1::CR1::WriteACK(1);
             if (!waitEvent(I2C1::SR1::ReadADDR, t0, timeoutMs)) return false;
+            uint32_t primask = disableIrqSave();
             (void)I2C1::SR2::Read(); /** 清 ADDR */
             I2C1::CR1::WriteACK(0);   /** NACK 第 2 字节 */
+            restoreIrq(primask);
             if (!waitEvent(I2C1::SR1::ReadBTF, t0, timeoutMs)) return false;
+            primask = disableIrqSave();
             I2C1::CR1::WriteSTOP(1);  /** 产生 STOP */
             buf[0] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+            restoreIrq(primask);
             buf[1] = static_cast<uint8_t>(I2C1::DR::ReadDR());
-            I2C1::CR1::WritePOS(0);   /** 恢复 POS */
         } else {
             I2C1::CR1::WriteACK(1); /** 多字节：ACK 必须在首字节接收前置位 */
             if (!waitAddrCleared(t0, timeoutMs)) return false;
-            for (size_t i = 0; i < len; ++i) {
-                if (!waitEvent(I2C1::SR1::ReadRxNE, t0, timeoutMs)) return false;
-                buf[i] = static_cast<uint8_t>(I2C1::DR::ReadDR());
-                if (i == len - 2) {
-                    /** 倒数第二字节：准备 NACK + STOP */
-                    I2C1::CR1::WriteACK(0);
-                    I2C1::CR1::WriteSTOP(1);
-                }
+
+            size_t idx = 0;
+            size_t remaining = len;
+            while (remaining > 3) {
+                if (!waitEvent(I2C1::SR1::ReadBTF, t0, timeoutMs)) return false;
+                buf[idx++] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+                --remaining;
             }
+
+            /** AN2824 method 2：BTF 拉低 SCL 后完成最后三字节的前两次读取。 */
+            if (!waitEvent(I2C1::SR1::ReadBTF, t0, timeoutMs)) return false;
+            I2C1::CR1::WriteACK(0);
+            uint32_t primask = disableIrqSave();
+            buf[idx++] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+            I2C1::CR1::WriteSTOP(1);
+            buf[idx++] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+            restoreIrq(primask);
+            if (!waitEvent(I2C1::SR1::ReadRxNE, t0, timeoutMs)) return false;
+            buf[idx] = static_cast<uint8_t>(I2C1::DR::ReadDR());
         }
 
-        /** 恢复 ACK */
+        if (!waitStopCleared(t0, timeoutMs)) return false;
+        I2C1::CR1::WritePOS(0);
         I2C1::CR1::WriteACK(1);
         return true;
     }
@@ -242,8 +265,10 @@ public:
     static bool writeRegIT(uint8_t addr7, uint8_t reg, const uint8_t* data,
                            size_t len) noexcept {
         using namespace STM32F103;
-        if (g_busy) return false;
-        if (len > MAX_BUF) return false;
+        if (g_busy || I2C1::SR2::ReadBUSY() != 0 || I2C1::CR1::ReadSTOP() != 0) {
+            return false;
+        }
+        if (len == 0 || len > MAX_BUF || data == nullptr) return false;
 
         g_busy = true;
         g_isRead = false;
@@ -258,7 +283,9 @@ public:
         for (size_t i = 0; i < len; ++i) g_txbuf[i] = data[i];
 
         /** START */
+        I2C1::CR1::WritePOS(0);
         I2C1::CR1::WriteACK(1);
+        enableInterrupts();
         I2C1::CR1::WriteSTART(1);
         return true;
     }
@@ -274,8 +301,10 @@ public:
     static bool readRegIT(uint8_t addr7, uint8_t reg, volatile uint8_t* buf,
                           size_t len) noexcept {
         using namespace STM32F103;
-        if (g_busy) return false;
-        if (len > MAX_BUF) return false;
+        if (g_busy || I2C1::SR2::ReadBUSY() != 0 || I2C1::CR1::ReadSTOP() != 0) {
+            return false;
+        }
+        if (len == 0 || len > MAX_BUF || buf == nullptr) return false;
 
         g_busy = true;
         g_isRead = true;
@@ -289,7 +318,9 @@ public:
         g_phase = Phase::WriteAddrW;
 
         /** START */
+        I2C1::CR1::WritePOS(0);
         I2C1::CR1::WriteACK(1);
+        enableInterrupts();
         I2C1::CR1::WriteSTART(1);
         return true;
     }
@@ -311,6 +342,25 @@ public:
      * @return true=出错
      */
     static bool isError() noexcept { return g_error; }
+
+    /**
+     * @brief 取消卡住的异步传输并恢复总线
+     */
+    static bool abortAndRecover() noexcept {
+        uint32_t primask = disableIrqSave();
+        if (!g_busy) {
+            restoreIrq(primask);
+            return false;
+        }
+        disableInterrupts();
+        g_busy = false;
+        g_done = false;
+        g_error = true;
+        g_phase = Phase::Idle;
+        restoreIrq(primask);
+        recoverBus();
+        return true;
+    }
 
     /**
      * @brief 回调函数指针类型
@@ -341,17 +391,16 @@ public:
         if (!g_busy) return;
 
         uint32_t sr1 = I2C1::SR1::Read();
-        (void)I2C1::SR2::Read(); /** 读 SR2 清 ADDR/STOPF */
 
         /** SB (Start Bit) */
         if (sr1 & 0x0001) {
             switch (g_phase) {
             case Phase::WriteAddrW:
-                I2C1::DR::WriteDR(g_addr7 << 1);
+                I2C1::DR::Write(g_addr7 << 1);
                 g_phase = Phase::WriteReg;
                 break;
             case Phase::RestartAddrR:
-                I2C1::DR::WriteDR((g_addr7 << 1) | 1);
+                I2C1::DR::Write((g_addr7 << 1) | 1);
                 g_phase = Phase::ReadData;
                 /**
                  * ACK/POS 配置：
@@ -367,6 +416,7 @@ public:
                 } else {
                     I2C1::CR1::WriteACK(1);
                 }
+                I2C1::CR2::WriteITBUFEN((g_len == 2 || g_len == 3) ? 0 : 1);
                 break;
             default:
                 break;
@@ -381,40 +431,92 @@ public:
              * 读 SR2 清 ADDR 后立即设 STOP。
              * 两字节读：POS=1, ACK=1 已在 SB 中置位；清 ACK 后等待 BTF。
              */
-            if (g_isRead && g_len == 1) {
-                I2C1::CR1::WriteACK(0);
+            if (g_isRead && g_phase == Phase::ReadData && g_len == 1) {
+                uint32_t primask = disableIrqSave();
                 (void)I2C1::SR2::Read(); /** 清 ADDR */
                 I2C1::CR1::WriteSTOP(1);
+                restoreIrq(primask);
                 return;
             }
-            if (g_isRead && g_len == 2) {
+            if (g_isRead && g_phase == Phase::ReadData && g_len == 2) {
+                uint32_t primask = disableIrqSave();
                 (void)I2C1::SR2::Read(); /** 清 ADDR */
                 I2C1::CR1::WriteACK(0);   /** NACK 第 2 字节 */
+                restoreIrq(primask);
                 return;
             }
-            /** 读 SR2 已清 ADDR */
+            (void)I2C1::SR2::Read(); /** 清写地址阶段或 N>2 读阶段的 ADDR */
             return;
         }
 
+        /** BTF (Byte Transfer Finished) */
+        if (sr1 & 0x0004) {
+            if (!g_isRead && g_idx >= g_len) {
+                /** 写完成 */
+                I2C1::CR1::WriteSTOP(1);
+                finishComplete();
+                return;
+            }
+            if (g_isRead && g_phase == Phase::Restart) {
+                I2C1::CR1::WriteSTART(1); /** 等寄存器地址 BTF 后产生 RESTART */
+                g_phase = Phase::RestartAddrR;
+                return;
+            }
+            if (g_isRead && g_len == 2 && g_phase == Phase::ReadData &&
+                g_rxbuf != nullptr) {
+                /** 两字节读：读双字节并结束 */
+                uint32_t primask = disableIrqSave();
+                I2C1::CR1::WriteSTOP(1);
+                g_rxbuf[0] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+                restoreIrq(primask);
+                g_rxbuf[1] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+                g_idx = 2;
+                finishComplete();
+                return;
+            }
+            if (g_isRead && g_len > 2 && g_phase == Phase::ReadData &&
+                g_rxbuf != nullptr) {
+                size_t remaining = g_len - g_idx;
+                if (remaining > 3) {
+                    g_rxbuf[g_idx] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+                    g_idx = g_idx + 1;
+                    if (g_len - g_idx == 3) I2C1::CR2::WriteITBUFEN(0);
+                    return;
+                }
+                if (remaining == 3) {
+                    I2C1::CR1::WriteACK(0);
+                    uint32_t primask = disableIrqSave();
+                    g_rxbuf[g_idx] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+                    g_idx = g_idx + 1;
+                    I2C1::CR1::WriteSTOP(1);
+                    g_rxbuf[g_idx] = static_cast<uint8_t>(I2C1::DR::ReadDR());
+                    g_idx = g_idx + 1;
+                    restoreIrq(primask);
+                    I2C1::CR2::WriteITBUFEN(1);
+                    return;
+                }
+            }
+        }
+
         /** TxE (Transmit buffer Empty) */
-        if (sr1 & 0x0080) {
+        if ((sr1 & 0x0080) &&
+            (g_phase == Phase::WriteReg || g_phase == Phase::WriteData)) {
             switch (g_phase) {
             case Phase::WriteReg:
-                I2C1::DR::WriteDR(g_reg);
+                I2C1::DR::Write(g_reg);
                 if (g_isRead) {
                     g_phase = Phase::Restart;
+                    I2C1::CR2::WriteITBUFEN(0);
                 } else {
                     g_phase = Phase::WriteData;
+                    if (g_len == 0) I2C1::CR2::WriteITBUFEN(0);
                 }
-                break;
-            case Phase::Restart:
-                I2C1::CR1::WriteSTART(1); /** RESTART */
-                g_phase = Phase::RestartAddrR;
                 break;
             case Phase::WriteData:
                 if (g_idx < g_len) {
-                    I2C1::DR::WriteDR(g_txbuf[g_idx]);
+                    I2C1::DR::Write(g_txbuf[g_idx]);
                     g_idx = g_idx + 1;
+                    if (g_idx >= g_len) I2C1::CR2::WriteITBUFEN(0);
                 } else {
                     /** 等待 BTF */
                 }
@@ -425,47 +527,25 @@ public:
             return;
         }
 
-        /** BTF (Byte Transfer Finished) */
-        if (sr1 & 0x0004) {
-            if (!g_isRead && g_idx >= g_len) {
-                /** 写完成 */
-                I2C1::CR1::WriteSTOP(1);
-                finishComplete();
-            } else if (g_isRead && g_len == 2 && g_phase == Phase::ReadData &&
-                       g_rxbuf != nullptr) {
-                /** 两字节读：读双字节并结束 */
-                I2C1::CR1::WriteSTOP(1);
-                g_rxbuf[0] = static_cast<uint8_t>(I2C1::DR::ReadDR());
-                g_rxbuf[1] = static_cast<uint8_t>(I2C1::DR::ReadDR());
-                g_idx = 2;
-                I2C1::CR1::WritePOS(0);
-                I2C1::CR1::WriteACK(1);
-                finishComplete();
-            }
-            return;
-        }
-
         /** RxNE (Receive buffer Not Empty) */
         if (sr1 & 0x0040) {
             if (g_isRead && g_phase == Phase::ReadData) {
                 /** 两字节读由 BTF 事件统一读取，避免提前读走 DataN-1 */
                 if (g_len == 2) return;
 
-                if (g_rxbuf != nullptr && g_idx < g_len) {
+                size_t remaining = g_len - g_idx;
+                /** N>2 在剩余三字节时等待 BTF，由上方 method 2 收尾。 */
+                if (g_len > 2 && remaining == 3) return;
+
+                if (g_rxbuf != nullptr && remaining > 0) {
                     g_rxbuf[g_idx] = static_cast<uint8_t>(I2C1::DR::ReadDR());
                     g_idx = g_idx + 1;
-                    /**
-                     * 多字节读（N>2）：倒数第二字节时 NACK + STOP。
-                     * 单字节读（N=1）：STOP 已在 ADDR 事件中发送，此处无需再设。
-                     */
-                    if (g_len > 2 && g_idx == g_len - 1) {
-                        I2C1::CR1::WriteACK(0);
-                        I2C1::CR1::WriteSTOP(1);
+                    if (g_len > 2 && g_len - g_idx == 3) {
+                        I2C1::CR2::WriteITBUFEN(0);
                     }
                 }
                 if (g_idx >= g_len) {
                     /** 读完成 */
-                    I2C1::CR1::WriteACK(1);
                     finishComplete();
                 }
             }
@@ -486,6 +566,9 @@ public:
         I2C1::CR1::WriteSTOP(1);
         g_error = true;
         g_busy = false;
+        g_done = false;
+        g_phase = Phase::Idle;
+        disableInterrupts();
         if (g_errorCb != nullptr) g_errorCb();
     }
 
@@ -532,10 +615,8 @@ public:
         I2C1::CCR::WriteCCR(180);
         I2C1::TRISE::WriteTRISE(37);
         I2C1::CR1::WritePE(1);
-        /** 恢复事件 + 缓冲 + 错误中断使能（与 initialize() 一致） */
-        I2C1::CR2::WriteITEVTEN(1);
-        I2C1::CR2::WriteITBUFEN(1);
-        I2C1::CR2::WriteITERREN(1);
+        /** 同步恢复后保持中断关闭，下一次异步传输再使能。 */
+        disableInterrupts();
         Platform::SysTick_::delayMs(5);
     }
 
@@ -562,6 +643,7 @@ private:
      * @brief 标记异步传输完成
      */
     static void finishComplete() noexcept {
+        disableInterrupts();
         g_busy = false;
         g_done = true;
         g_phase = Phase::Idle;
@@ -601,6 +683,48 @@ private:
         if (!waitEvent(I2C1::SR1::ReadADDR, t0, timeoutMs)) return false;
         (void)I2C1::SR2::Read(); /** 读 SR2 清 ADDR */
         return true;
+    }
+
+    static bool waitBusIdle(uint32_t t0, uint32_t timeoutMs) noexcept {
+        while (Platform::SysTick_::elapsed(t0) < timeoutMs) {
+            if (STM32F103::I2C1::SR2::ReadBUSY() == 0 &&
+                STM32F103::I2C1::CR1::ReadSTOP() == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool waitStopCleared(uint32_t t0, uint32_t timeoutMs) noexcept {
+        while (Platform::SysTick_::elapsed(t0) < timeoutMs) {
+            if (STM32F103::I2C1::CR1::ReadSTOP() == 0) return true;
+        }
+        return false;
+    }
+
+    static void enableInterrupts() noexcept {
+        STM32F103::I2C1::CR2::WriteITERREN(1);
+        STM32F103::I2C1::CR2::WriteITBUFEN(1);
+        STM32F103::I2C1::CR2::WriteITEVTEN(1);
+    }
+
+    static void disableInterrupts() noexcept {
+        STM32F103::I2C1::CR2::WriteITEVTEN(0);
+        STM32F103::I2C1::CR2::WriteITBUFEN(0);
+        STM32F103::I2C1::CR2::WriteITERREN(0);
+    }
+
+    static uint32_t disableIrqSave() noexcept {
+        uint32_t primask;
+        __asm volatile("mrs %0, primask\n\tcpsid i"
+                       : "=r"(primask)
+                       :
+                       : "memory");
+        return primask;
+    }
+
+    static void restoreIrq(uint32_t primask) noexcept {
+        __asm volatile("msr primask, %0" : : "r"(primask) : "memory");
     }
 
     /** 异步状态 */
