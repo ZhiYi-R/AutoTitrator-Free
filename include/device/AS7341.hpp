@@ -66,11 +66,13 @@ public:
     static void service() noexcept {
         if (g_i2cBusy) {
             if (Platform::SysTick_::elapsed(g_i2cStartedAt) < I2C_TIMEOUT_MS) return;
-            if (HAL::I2C::abortAndRecover()) {
-                g_i2cBusy = false;
-                g_ioDone = false;
-                g_error = true;
+            /** 无论 HAL busy 是否仍置位，都强制退出设备侧 busy，避免失步卡死 */
+            if (!HAL::I2C::abortAndRecover()) {
+                HAL::I2C::recoverBus();
             }
+            g_i2cBusy = false;
+            g_ioDone = false;
+            g_error = true;
         }
 
         /** I2C 出错：复位状态机，让主循环重新启动新一轮测量 */
@@ -335,11 +337,14 @@ private:
         for (uint8_t i = 0; i < 20; ++i) {
             if (!writeRegSync(i, smux[i])) return false;
         }
+        /** 启动 SMUX 引擎，必须等 SMUXEN 硬件自清后再改配置/开测量 */
         if (!readRegSync(+Reg::ENABLE, &enable) ||
             !writeRegSync(+Reg::ENABLE, enable | (1 << 4)) ||
-            !setBankSync(1)) {
+            !waitSmuxDone(SMUX_TIMEOUT_MS)) {
             return false;
         }
+
+        if (!setBankSync(1)) return false;
 
         uint8_t config{};
         if (!readRegSync(+Reg::CONFIG, &config) ||
@@ -350,6 +355,21 @@ private:
             return false;
         }
         return true;
+    }
+
+    /**
+     * @brief 等待 SMUXEN(bit4) 自清
+     * @param timeoutMs 超时（毫秒）
+     * @return true=SMUX 完成, false=超时或读失败
+     */
+    static bool waitSmuxDone(uint32_t timeoutMs) noexcept {
+        uint32_t t0 = Platform::SysTick_::tickMs();
+        while (Platform::SysTick_::elapsed(t0) < timeoutMs) {
+            uint8_t enable{};
+            if (!readRegSync(+Reg::ENABLE, &enable)) return false;
+            if ((enable & (1u << 4)) == 0) return true;
+        }
+        return false;
     }
 
     /** 异步读通道数据 */
@@ -420,6 +440,7 @@ private:
     inline static volatile uint8_t g_rxBuf[12]{};
 
     static constexpr uint32_t I2C_TIMEOUT_MS = 100;
+    static constexpr uint32_t SMUX_TIMEOUT_MS = 100;
 };
 
 } // namespace Device
