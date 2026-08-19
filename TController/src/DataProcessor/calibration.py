@@ -24,14 +24,25 @@ _DATA_FILE = CALIBRE_PATH
 
 
 def _load() -> None:
+    """从 data/calibration.npz 加载泵标定参数，静默失败时保留默认值。"""
     global PUMP_SLOPE, PUMP_INTERCEPT
     if not os.path.isfile(_DATA_FILE):
         return
     try:
         _data = np.load(_DATA_FILE, allow_pickle=True)
-        PUMP_SLOPE = float(_data["pump1_slope"])
-        PUMP_INTERCEPT = float(_data["pump1_intercept"])
+        slope = float(_data["pump1_slope"])
+        intercept = float(_data["pump1_intercept"])
+        
+        # 合法性校验：slope 必须为正数，intercept 允许负值但不应过大
+        if slope <= 0:
+            raise ValueError(f"pump1_slope 必须为正数，当前值为 {slope}")
+        if abs(intercept) > 10.0:
+            raise ValueError(f"pump1_intercept 绝对值超限（>10.0 mL），当前值为 {intercept}")
+        
+        PUMP_SLOPE = slope
+        PUMP_INTERCEPT = intercept
     except Exception:
+        # 静默失败，保留模块级默认值
         pass
 
 
