@@ -47,7 +47,7 @@ public:
         /** TRGO = Update 事件 (MMS=010) */
         TIM3::CR2::WriteMMS(2);
         /** 产生更新事件加载 PSC/ARR */
-        TIM3::EGR::WriteUG(1);
+        TIM3::EGR::Write(1);
     }
 
     /**
@@ -108,7 +108,7 @@ public:
         TIM4::CCER::WriteCC2E(1);
 
         /** 产生更新事件加载 PSC/ARR/CCR */
-        TIM4::EGR::WriteUG(1);
+        TIM4::EGR::Write(1);
 
         /** NVIC: TIM4 优先级 1 */
         Platform::NVIC_::setPriority(Platform::NVIC_::IRQn::TIM4, 1);
@@ -174,7 +174,7 @@ public:
         uint32_t ccr = (arr + 1) / 2;
         STM32F103::TIM4::CCR1::WriteCCR1(ccr);
         STM32F103::TIM4::CCR2::WriteCCR2(ccr);
-        STM32F103::TIM4::EGR::WriteUG(1);
+        STM32F103::TIM4::EGR::Write(1);
     }
 
     /**

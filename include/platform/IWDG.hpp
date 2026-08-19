@@ -43,9 +43,9 @@ public:
     static void initialize() noexcept {
         using namespace STM32F103;
         /** 启动 IWDG（写 0xCCCC 到 KR） */
-        IWDG::KR::WriteKEY(KEY_START);
+        IWDG::KR::Write(KEY_START);
         /** 使能寄存器写访问 */
-        IWDG::KR::WriteKEY(KEY_WRITE_ACCESS);
+        IWDG::KR::Write(KEY_WRITE_ACCESS);
         /** 设置预分频（等待 PVU 清除） */
         IWDG::PR::WritePR(PRESCALER);
         while (IWDG::SR::ReadPVU() != 0) {
@@ -57,14 +57,14 @@ public:
             /** 等待重载值更新完成 */
         }
         /** 首次喂狗，加载计数器 */
-        IWDG::KR::WriteKEY(KEY_RELOAD);
+        IWDG::KR::Write(KEY_RELOAD);
     }
 
     /**
      * @brief 喂狗（重载计数器，必须在超时前调用）
      */
     static void reload() noexcept {
-        STM32F103::IWDG::KR::WriteKEY(KEY_RELOAD);
+        STM32F103::IWDG::KR::Write(KEY_RELOAD);
     }
 
     IWDG_() = delete;
