@@ -25,7 +25,7 @@ namespace HAL {
 class UART {
 public:
     /** DMA 接收缓冲区大小 */
-    static constexpr size_t DMA_BUF_SIZE = 64;
+    static constexpr size_t DMA_BUF_SIZE = 256;
 
     /**
      * @brief 初始化 USART1 + DMA RX + IDLE 中断
@@ -106,7 +106,9 @@ public:
      * @return 当前写入位置
      */
     static size_t dmaWritePos() noexcept {
-        return DMA_BUF_SIZE - STM32F103::DMA1::CNDTR5::ReadNDT();
+        static_assert((DMA_BUF_SIZE & (DMA_BUF_SIZE - 1)) == 0);
+        return (DMA_BUF_SIZE - STM32F103::DMA1::CNDTR5::ReadNDT()) &
+               (DMA_BUF_SIZE - 1);
     }
 
     /** TX（中断逐字节） */
@@ -116,7 +118,7 @@ public:
      */
     static void startTx() noexcept {
         if (g_txLen > 0) {
-            STM32F103::USART1::DR::WriteDR(g_txBuf[g_txIdx]);
+            STM32F103::USART1::DR::Write(g_txBuf[g_txIdx]);
             g_txIdx = g_txIdx + 1;
             STM32F103::USART1::CR1::WriteTXEIE(1);
         }
@@ -167,7 +169,7 @@ public:
         /** TXE 中断：发送下一字节 */
         if (USART1::SR::ReadTXE() != 0 && USART1::CR1::ReadTXEIE() != 0) {
             if (g_txIdx < g_txLen) {
-                USART1::DR::WriteDR(g_txBuf[g_txIdx]);
+                USART1::DR::Write(g_txBuf[g_txIdx]);
                 g_txIdx = g_txIdx + 1;
             } else {
                 /** 发送完成，关闭 TXE 中断 */

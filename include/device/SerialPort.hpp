@@ -113,12 +113,10 @@ public:
      * @brief 主循环服务（搬运 DMA 缓冲到环形缓冲）
      */
     static void service() noexcept {
-        /** 检查 DMA half/full/IDLE 标志 */
-        bool dmaFlag = HAL::UART::consumeRxDmaFlag();
-        bool idleFlag = HAL::UART::consumeRxIdleFlag();
-        if (dmaFlag || idleFlag) {
-            drainDMA();
-        }
+        /** 标志仅用于清除事件状态；写指针本身是数据是否到达的依据。 */
+        (void)HAL::UART::consumeRxDmaFlag();
+        (void)HAL::UART::consumeRxIdleFlag();
+        drainDMA();
     }
 
     SerialPort() = delete;
