@@ -6,10 +6,10 @@ import tkinter as tk
 
 import numpy as np
 import ttkbootstrap as ttk
+from DataProcessor import PUMP_SLOPE
 from matplotlib.colors import to_rgb
 from matplotlib.patches import Polygon
 
-from DataProcessor import PUMP_SLOPE
 from gui import i18n, themes
 from gui._plot import _BlitPlot
 

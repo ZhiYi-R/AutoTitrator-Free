@@ -10,6 +10,7 @@ import json
 import os
 
 from DataProcessor._path import CALIBRE_PATH
+
 from gui.i18n import DEFAULT_LANG, LANGS
 
 SETTINGS_PATH = os.path.join(os.path.dirname(CALIBRE_PATH), "settings.json")

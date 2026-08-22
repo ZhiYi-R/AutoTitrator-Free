@@ -9,8 +9,8 @@ from __future__ import annotations
 import tkinter as tk
 
 import ttkbootstrap as ttk
-
 from Communication import ProtocolHandler
+
 from gui import i18n, themes
 
 

@@ -3,7 +3,6 @@
 import sys
 
 import ttkbootstrap
-
 from gui import i18n
 from gui.main_window import MainWindow
 from gui.settings import load_settings

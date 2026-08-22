@@ -8,10 +8,10 @@ from tkinter import simpledialog
 
 import numpy as np
 import ttkbootstrap as ttk
-from ttkbootstrap.dialogs import Messagebox
-
 from Communication import ProtocolHandler
 from DataProcessor._path import CALIBRE_PATH
+from ttkbootstrap.dialogs import Messagebox
+
 from gui import i18n, themes
 from gui._plot import _BlitPlot
 from gui.themes import MONO_FONT, UI_FONT
