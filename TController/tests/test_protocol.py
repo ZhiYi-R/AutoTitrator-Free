@@ -5,10 +5,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
-from Communication.protocol import (  # noqa: E402
+from Communication.protocol import (
     ProtocolHandler,
-    _UplinkParser,
     _crc8,
+    _UplinkParser,
 )
 
 
