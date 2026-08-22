@@ -97,9 +97,11 @@
     "manual_stopped": "Manually stopped",
     "manual_stopped_at": "Manual stop @ {vol} mL",
     "endpoint_t1": "Endpoint T=1 @ {vol} mL",
+    "endpoint_t1_conflict": "Endpoint T=1 @ {vol} mL (potential only, spectral failed the gate)",
     "endpoint_final": "Endpoint: {vol} mL",
     "progress": "T=1 @ {ep} mL | T={t}  vol={vol} mL",
     "detect": "Detected: {vol} mL, confidence={conf}",
+    "candidate": "Candidate: {vol} mL; waiting for potential/KF consensus",
     "injecting": "Injecting {vol} mL …",
     "pump_done": "Pump {id} done pos={pos}",
     "pump2_vol": "Pump 2 vol={vol} mL  +{diff}",
@@ -128,7 +130,14 @@
     "endpoint": "Endpoint Volume",
     "endpoint_unit": "mL",
     "cx": "Cₓ Concentration",
-    "cx_unit": "mol/L"
+    "cx_unit": "mol/L",
+    "diagnostics": "Online Reliability",
+    "diag_status": "Status",
+    "diag_quality": "Data quality",
+    "diag_consistency": "Modal difference",
+    "diag_nis": "NIS",
+    "diag_std": "Endpoint std",
+    "diag_delay": "Spectral delay"
   },
   "plot": {
     "spectrum": "Real-time Spectrum",

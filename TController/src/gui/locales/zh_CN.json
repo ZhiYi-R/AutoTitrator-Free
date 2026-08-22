@@ -97,9 +97,11 @@
     "manual_stopped": "手动停止",
     "manual_stopped_at": "手动停止 @ {vol} mL",
     "endpoint_t1": "终点 T=1 @ {vol} mL",
+    "endpoint_t1_conflict": "终点 T=1 @ {vol} mL（仅电位支撑，光谱未过一致性门控）",
     "endpoint_final": "终点: {vol} mL",
     "progress": "T=1 @ {ep} mL | T={t}  vol={vol} mL",
     "detect": "检测: {vol} mL, 置信度={conf}",
+    "candidate": "候选终点: {vol} mL，等待电位/KF 共识",
     "injecting": "进样 {vol} mL …",
     "pump_done": "泵{id}完成 pos={pos}",
     "pump2_vol": "泵2 vol={vol} mL  +{diff}",
@@ -128,7 +130,14 @@
     "endpoint": "终点体积",
     "endpoint_unit": "mL",
     "cx": "Cₓ 浓度",
-    "cx_unit": "mol/L"
+    "cx_unit": "mol/L",
+    "diagnostics": "在线可靠性",
+    "diag_status": "状态",
+    "diag_quality": "数据质量",
+    "diag_consistency": "模态差异",
+    "diag_nis": "NIS",
+    "diag_std": "终点标准差",
+    "diag_delay": "光谱滞后"
   },
   "plot": {
     "spectrum": "实时光谱",

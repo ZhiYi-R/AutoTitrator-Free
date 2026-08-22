@@ -156,7 +156,19 @@ class ResultsPanel(ttk.Frame):
         ).pack(side="left", pady=(6, 0))
         self._cx_unit_label = cx_value_row.winfo_children()[-1]
 
-        # 内部状态
+        # ---- 在线可靠性诊断 ----
+        self._diag_group = ttk.LabelFrame(layout, text=i18n.tr("results.diagnostics"))
+        self._diag_group.pack(fill="x", pady=(0, 6))
+        diag_inner = ttk.Frame(self._diag_group, padding=(8, 6))
+        diag_inner.pack(fill="both", expand=True)
+        self._diag_status = self._add_diag_row(diag_inner, "results.diag_status")
+        self._diag_quality = self._add_diag_row(diag_inner, "results.diag_quality")
+        self._diag_consistency = self._add_diag_row(diag_inner, "results.diag_consistency")
+        self._diag_nis = self._add_diag_row(diag_inner, "results.diag_nis")
+        self._diag_std = self._add_diag_row(diag_inner, "results.diag_std")
+        self._diag_delay = self._add_diag_row(diag_inner, "results.diag_delay")
+
+        # Internal state
         self._endpoint_volume: float | None = None
         self._sample_volume: float = 0.0
         self._inject_target: int = 0
@@ -180,6 +192,18 @@ class ResultsPanel(ttk.Frame):
         self._v_sample_rowlabel.config(text=i18n.tr("results.sample_volume"))
         self._v_now_rowlabel.config(text=i18n.tr("results.current_voltage"))
         self._inject_group.config(text=i18n.tr("results.inject"))
+        self._diag_group.config(text=i18n.tr("results.diagnostics"))
+        # 在线诊断行的标题由行内 label 保存，值标签不参与翻译。
+        for widget, key in (
+            (self._diag_status, "results.diag_status"),
+            (self._diag_quality, "results.diag_quality"),
+            (self._diag_consistency, "results.diag_consistency"),
+            (self._diag_nis, "results.diag_nis"),
+            (self._diag_std, "results.diag_std"),
+            (self._diag_delay, "results.diag_delay"),
+        ):
+            label = widget.master.winfo_children()[0]
+            label.config(text=i18n.tr(key))
         self._ep_caption.config(text=i18n.tr("results.endpoint"))
         self._ep_unit_label.config(text=" " + i18n.tr("results.endpoint_unit"))
         self._cx_caption.config(text=i18n.tr("results.cx"))
@@ -233,6 +257,41 @@ class ResultsPanel(ttk.Frame):
             return float(sb.get())
         except (ValueError, tk.TclError):
             return 0.0
+
+    @staticmethod
+    def _add_diag_row(parent: tk.Misc, label_key: str) -> ttk.Label:
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=1)
+        row.grid_columnconfigure(0, weight=1)
+        caption = ttk.Label(row, text=i18n.tr(label_key), style="Muted.TLabel")
+        caption.grid(row=0, column=0, sticky="w")
+        value = ttk.Label(row, text="—", font=(MONO_FONT, 9))
+        value.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        return value
+
+    def set_reliability(self, reliability: dict | None) -> None:
+        """Update the compact causal reliability readout."""
+        data = reliability or {}
+        quality = data.get("data_quality") or {}
+        consistency = data.get("modal_consistency") or {}
+        status = data.get("status") or "—"
+        last_frame = quality.get("last_frame", "—")
+        self._diag_status.config(text=str(status))
+        self._diag_quality.config(text=str(last_frame))
+        agreement = consistency.get("agreement_mL")
+        self._diag_consistency.config(
+            text="—" if agreement is None else f"{float(agreement):.4f} mL"
+        )
+        nis = data.get("nis")
+        self._diag_nis.config(text="—" if nis is None else f"{float(nis):.2f}")
+        endpoint_std = data.get("endpoint_std")
+        self._diag_std.config(
+            text="—" if endpoint_std is None else f"{float(endpoint_std):.4f} mL"
+        )
+        delay = data.get("spectral_delay")
+        self._diag_delay.config(
+            text="—" if delay is None else f"{float(delay):+.4f} mL"
+        )
 
     # ---- 公开接口 ----
 

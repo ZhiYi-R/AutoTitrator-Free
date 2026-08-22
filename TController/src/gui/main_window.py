@@ -13,12 +13,12 @@ from typing import Literal
 import numpy as np
 import openpyxl
 import ttkbootstrap as ttk
-from ttkbootstrap.dialogs import Messagebox
-
 from Communication import ProtocolHandler
 from DataProcessor import EndpointDetector, steps_from_volume, volume_from_steps
 from DataProcessor import reconstruct as _reconstruct
 from DataProcessor._path import CALIBRE_PATH
+from ttkbootstrap.dialogs import Messagebox
+
 from gui import i18n, themes
 from gui.calibration_tab import CalibrationTab
 from gui.maintenance_tab import MaintenanceTab
@@ -124,6 +124,7 @@ class MainWindow(ttk.Frame):
         self._rec_recon_wls: np.ndarray | None = None
         self._rec_potential: list[tuple[float, float, float, float]] = []
         self._rec_raw_adc: list[tuple[float, int, float]] = []
+        self._rec_features: list[dict] = []
         self._rec_ewma_v: float | None = None
 
         # ---- UI ----
@@ -606,8 +607,15 @@ class MainWindow(ttk.Frame):
             TitrationState.TITRATING_2,
             TitrationState.DEGREE_1,
         ):
+            detector_spectrum = np.array(vals, dtype=np.float64)
+            if self._recon_wls is not None:
+                try:
+                    _, detector_spectrum = _reconstruct(vals)
+                    self._detector.set_spectrum_axis(self._recon_wls)
+                except (ValueError, FileNotFoundError):
+                    detector_spectrum = np.array(vals, dtype=np.float64)
             self._detector.feed_spectrum(
-                self._pump2_volume, np.array(vals, dtype=np.float64)
+                self._pump2_volume, detector_spectrum, t=t
             )
 
     def _on_adc_data(self, data: tuple) -> None:
@@ -742,6 +750,7 @@ class MainWindow(ttk.Frame):
             self._rec_recon_wls = None
             self._rec_potential.clear()
             self._rec_raw_adc.clear()
+            self._rec_features.clear()
             self._rec_ewma_v = None
         try:
             vol_ml = float(self._vol_spin.get())
@@ -848,6 +857,11 @@ class MainWindow(ttk.Frame):
         ):
             return
 
+        diagnostics = self._detector.diagnostics()
+        self._results_panel.set_reliability(diagnostics["reliability"])
+        if self._recording:
+            self._record_feature_diagnostics(diagnostics)
+
         result = self._detector.detect()
         if result is None:
             return
@@ -856,17 +870,37 @@ class MainWindow(ttk.Frame):
         self._activity.config(
             text=i18n.tr("status.detect", vol=f"{vol:.3f}", conf=result["confidence"])
         )
+        self._results_panel.set_reliability(result.get("reliability", {}))
 
         if self._state == TitrationState.TITRATING:
+            # 判据是"报告的体积有电位证据支撑",而不是枚举 method 名字。consensus 已由
+            # KF 融合双模态;potential_only 与 conflict 报告的都是电位终点(conflict 即
+            # "双模态都确认但未过 NIS 门控,退回电位")。只有 spectral_only 不能控泵——
+            # 它没有电极证据。原先按 method 名白名单漏掉了 conflict:两模态持续不一致时
+            # T=1 永不触发,滴定死锁而泵无限运行。
+            method = result.get("method")
+            reliability = result.get("reliability", {})
+            can_control = method == "consensus" or (
+                method in ("potential_only", "conflict")
+                and reliability.get("potential_evidence", False)
+            )
+            if not can_control:
+                self._activity.config(
+                    text=i18n.tr("status.candidate", vol=f"{vol:.3f}")
+                )
+                return
             # 首次到达终点 T=1
             self._endpoint_volume = vol
             self._potential_widget.set_endpoint(vol)
             self._results_panel.set_endpoint(vol)
             self._set_state(TitrationState.DEGREE_1)
-            self._set_chip(i18n.tr("status.endpoint_t1", vol=f"{vol:.3f}"), "ChipWarn")
-            self._msg.show(
-                "warn", i18n.tr("status.endpoint_t1", vol=f"{vol:.3f}"), sticky=True
+            key = (
+                "status.endpoint_t1_conflict"
+                if method == "conflict"
+                else "status.endpoint_t1"
             )
+            self._set_chip(i18n.tr(key, vol=f"{vol:.3f}"), "ChipWarn")
+            self._msg.show("warn", i18n.tr(key, vol=f"{vol:.3f}"), sticky=True)
 
         elif self._state in (TitrationState.DEGREE_1, TitrationState.TITRATING_2):
             # 显示当前滴定进度
@@ -939,6 +973,29 @@ class MainWindow(ttk.Frame):
     #  数据导出
     # ================================================================
 
+    def _record_feature_diagnostics(self, diagnostics: dict) -> None:
+        features = diagnostics.get("spectral_features", {})
+        kf = diagnostics.get("kf") or {}
+        reliability = diagnostics.get("reliability", {})
+        self._rec_features.append(
+            {
+                "volume": features.get("volume"),
+                "js_local": features.get("js_local", 0.0),
+                "js_speed": features.get("js_speed", 0.0),
+                "js_base": features.get("js_base", 0.0),
+                "cross_curvature": features.get("cross_curvature", 0.0),
+                "spectral_state": diagnostics.get("spectral_state", ""),
+                "event_maturity": features.get("event_maturity", 0.0),
+                "recovery_frames": features.get("recovery_frames", 0),
+                "innovation": kf.get("innovation"),
+                "nis": kf.get("nis"),
+                "reliability": reliability.get("status", ""),
+                # 记录事件计数与替换次数,导出后可复核光谱终点是否被更强事件顶替过。
+                "events": reliability.get("spectral_events", 0),
+                "superseded": reliability.get("spectral_superseded", 0),
+            }
+        )
+
     def _on_titration_complete(self, result: dict) -> None:
         """滴定完成时更新 Cx 并自动导出数据。"""
         # 确保 Cx 基于最新终点体积重新计算
@@ -997,7 +1054,46 @@ class MainWindow(ttk.Frame):
         for t, rv, fv, vol in self._rec_potential:
             ws3.append([round(t, 3), round(rv, 6), round(fv, 6), round(vol, 6)])
 
-        # ---- Sheet 4: Titration Results ----
+        # ---- Sheet 4: Feature Diagnostics ----
+        if self._rec_features:
+            wsf = wb.create_sheet("Feature Diagnostics")
+            wsf.append(
+                [
+                    "Volume (mL)",
+                    "JS Local",
+                    "JS Speed",
+                    "JS Baseline",
+                    "Cross Curvature",
+                    "Spectral State",
+                    "Event Maturity",
+                    "Recovery Frames",
+                    "Innovation",
+                    "NIS",
+                    "Reliability",
+                    "Events",
+                    "Superseded",
+                ]
+            )
+            for row in self._rec_features:
+                wsf.append(
+                    [
+                        row.get("volume"),
+                        row.get("js_local"),
+                        row.get("js_speed"),
+                        row.get("js_base"),
+                        row.get("cross_curvature"),
+                        row.get("spectral_state"),
+                        row.get("event_maturity"),
+                        row.get("recovery_frames"),
+                        row.get("innovation"),
+                        row.get("nis"),
+                        row.get("reliability"),
+                        row.get("events"),
+                        row.get("superseded"),
+                    ]
+                )
+
+        # ---- Sheet 5: Titration Results ----
         ws4 = wb.create_sheet("Titration Results")
         ws4.append(["Parameter", "Value"])
         ws4.append(
@@ -1024,6 +1120,12 @@ class MainWindow(ttk.Frame):
                 ]
             )
             ws4.append(["Max CE", result["spectral"].get("max_ce", "")])
+            ws4.append(["Max JS", result["spectral"].get("max_js", "")])
+            ws4.append(["JS Local", result["spectral"].get("js_local", "")])
+            ws4.append(["JS Speed", result["spectral"].get("js_speed", "")])
+            ws4.append(["JS Baseline", result["spectral"].get("js_base", "")])
+            ws4.append(["Cross Curvature", result["spectral"].get("cross_curvature", "")])
+            ws4.append(["Event Maturity", result["spectral"].get("event_maturity", "")])
         ws4.append(["C_std (mol/L)", c_std])
         ws4.append(
             ["n_std (标准液)", self._results_panel._spin_value(self._results_panel._n_std)]
@@ -1054,6 +1156,7 @@ class MainWindow(ttk.Frame):
             self._rec_recon_wls = None
             self._rec_potential.clear()
             self._rec_raw_adc.clear()
+            self._rec_features.clear()
             self._rec_ewma_v = None
             self._msg.show("info", i18n.tr("status.recording_on"))
         else:
