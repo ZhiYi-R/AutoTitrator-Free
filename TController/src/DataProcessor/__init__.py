@@ -18,6 +18,14 @@ from DataProcessor.calibration import (
     volume_from_steps,
 )
 from DataProcessor.endpoint import EndpointDetector, savgol_filter
+from DataProcessor.online_features import (
+    EndpointFusionKF,
+    SpectralFeatureTracker,
+    cross_entropy,
+    cross_entropy_excess,
+    js_divergence,
+    normalize_spectrum,
+)
 from DataProcessor.reconstructor import get_wavelengths, is_available, reconstruct
 
 __all__ = [
@@ -26,8 +34,14 @@ __all__ = [
     "PUMP_SLOPE",
     "PUMP_STEP_FREQ",
     "EndpointDetector",
+    "EndpointFusionKF",
+    "SpectralFeatureTracker",
+    "cross_entropy",
+    "cross_entropy_excess",
     "get_wavelengths",
     "is_available",
+    "js_divergence",
+    "normalize_spectrum",
     "reconstruct",
     "savgol_filter",
     "steps_from_volume",

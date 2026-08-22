@@ -1,23 +1,26 @@
-"""
-滴定终点在线检测（因果 EWMA + 状态机）。
+"""Causal online titration endpoint detection.
 
-电位通道: EWMA(α=0.15) 平滑电位 → 逐点 dV/dt → EWMA(α=0.05) 平滑导数
-          → 状态机 IDLE→TRACKING→END_CONFIRMED（体积门控确认）
-光谱通道: 逐帧交叉熵 → EWMA(α=0.20) 平滑 → 状态机
-共识:     V_pot 与 V_spec 差异在阈值内则输出均值 + 高置信度
+Potential data is processed with the existing causal EWMA state machine.
+Spectra are processed by :mod:`DataProcessor.online_features`, which adds a
+bounded Jensen-Shannon signal, causal cross-curvature and a two-state KF for
+endpoint/delay fusion.  No feature uses future samples.
 
-全部处理均为因果（仅使用历史数据），适用在线流式场景。
+Either endpoint can be revised after the fact -- the spectral one when a stronger
+excursion supersedes an early transient, the potential one after AMPD refinement
+-- so :meth:`EndpointDetector._consume_kf_observations` re-runs the filter from
+scratch whenever the observed pair changes.  Gating a corrected value against a
+state built from the stale one would reject the correction.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
-# ======================================================================
-#  工具函数（保留兼容性）
-# ======================================================================
+from DataProcessor.online_features import EndpointFusionKF, SpectralFeatureTracker
 
-_SAVGOL_COEFFS_CACHE: dict[tuple, np.ndarray] = {}
+_SAVGOL_COEFFS_CACHE: dict[tuple[int, int], np.ndarray] = {}
 
 
 def _savgol_coeffs(window: int, order: int) -> np.ndarray:
@@ -35,20 +38,15 @@ def _savgol_coeffs(window: int, order: int) -> np.ndarray:
 
 
 def savgol_filter(signal: np.ndarray, window: int = 5, order: int = 2) -> np.ndarray:
-    """Savitzky–Golay 平滑（中心对称，离线用）。"""
+    """Savitzky-Golay smoothing (symmetric and intended for offline use)."""
     coeffs = _savgol_coeffs(window, order)
     half = window // 2
     padded = np.pad(signal, half, mode="edge")
     return np.convolve(padded, coeffs[::-1], mode="valid")
 
 
-# ======================================================================
-#  因果指数移动平均
-# ======================================================================
-
-
 class _EWMA:
-    """一阶指数移动平均（因果，O(1) 每步）。"""
+    """First-order causal exponential moving average."""
 
     __slots__ = ("_a", "_v")
 
@@ -71,124 +69,165 @@ class _EWMA:
         self._v = None
 
 
-# ======================================================================
-#  Automatic Multi-scale Peak Detection (Scholkmann 2012)
-#  对取反后的信号找峰 → 原信号的谷底
-# ======================================================================
-
-
 def _ampd_peak_idx(signal: np.ndarray) -> int | None:
-    """返回 AMPD 定位的最显著峰值索引（无峰时返回 None）。"""
-    N = len(signal)
+    """Return the most prominent AMPD peak index, or ``None``.
+
+    Reduces each scale row on the fly instead of materialising the dense
+    ``L x N`` local-maxima matrix.  The original nested Python loop cost O(N^2)
+    interpreted iterations and O(N^2) memory: on a full titration record
+    (measured on Paper/ExpData, ~1.4-1.7e4 samples) that was tens of seconds and
+    0.4-0.6 GB on the GUI thread.  Results are bit-identical -- the same strict
+    comparisons, the same first-minimum ``argmin`` and first-maximum ``argmax``.
+    """
+    sig = np.asarray(signal, dtype=np.float64)
+    N = sig.size
     if N < 12:
         return None
     L = N // 2 - 1
     if L < 2:
         return None
 
-    # LMS 矩阵: LMS[k, i] = 1 若 X[i] 在尺度 k 上是局部极大值
-    LMS = np.zeros((L, N), dtype=np.int32)
-    for k in range(1, L + 1):
-        for i in range(k, N - k):
-            if signal[i] > signal[i - k] and signal[i] > signal[i + k]:
-                LMS[k - 1, i] = 1
+    def _row(k: int) -> np.ndarray:
+        centre = sig[k : N - k]
+        return (centre > sig[: N - 2 * k]) & (centre > sig[2 * k :])
 
-    # 最优尺度 = 局部极大值最少的行（噪声抑制最充分）
-    gamma = LMS.sum(axis=1)
+    # gamma[k-1] counts local maxima at scale k; sigma is the scale where the
+    # signal is most consistently peaked.
+    gamma = np.fromiter(
+        (np.count_nonzero(_row(k)) for k in range(1, L + 1)), dtype=np.int64, count=L
+    )
     sigma = int(np.argmin(gamma))
 
-    # 从最优尺度起累计，得分最高的列为峰位
-    score = LMS[sigma:, :].sum(axis=0)
+    score = np.zeros(N, dtype=np.int64)
+    for k in range(sigma + 1, L + 1):
+        score[k : N - k] += _row(k)
     best = int(np.argmax(score))
     return best if score[best] > 0 else None
 
 
-# ======================================================================
-#  EndpointDetector 主类（在线流式版）
-# ======================================================================
-
-
 class EndpointDetector:
-    """滴定终点在线检测（因果滤波 + 状态机）。
+    """Causal endpoint detector for potential and full-field spectral data."""
 
-    用法::
-
-        det = EndpointDetector(flow_rate=0.0061)
-        det.feed_potential(t, v)
-        det.feed_spectrum(t, spectrum)
-        result = det.detect()
-    """
-
-    # 电位通道参数（自适应阈值）
+    # Potential channel parameters.
     POT_V_ALPHA = 0.15
     POT_D_ALPHA = 0.05
-    POT_OBSERVE_VOL = 0.1  # mL: 观察窗口，用于学习噪声基底
-    POT_ENTER_SIGMA = 6.0  # dv/dt 低于噪声均值 6σ 时进入 TRACKING
-    POT_EXIT_SIGMA = 2.5  # dv/dt 恢复至 2.5σ 以内时确认终点
-    POT_MIN_ENTER = 0.005  # V/s: ENTER 阈值安全下限
-    POT_MIN_EXIT = 0.001  # V/s: EXIT 阈值安全下限
+    POT_OBSERVE_VOL = 0.1
+    POT_ENTER_SIGMA = 2.5
+    POT_EXIT_SIGMA = 2.5
+    POT_MIN_ENTER = 0.005
+    POT_MIN_EXIT = 0.001
     POT_CONFIRM_VOL = 0.15
 
-    # 光谱通道参数
+    # Legacy spectral names remain public for old validation/configuration code.
+    # SPEC_ENTER/SPEC_EXIT are the cross-entropy-era thresholds and are only used
+    # when use_jsd=False; that path is kept for compatibility and is not tuned.
     SPEC_CE_ALPHA = 0.20
     SPEC_ENTER = 1e-3
     SPEC_EXIT = 1e-4
     SPEC_CONFIRM_FRAMES = 10
 
-    def __init__(self, flow_rate: float | None = None) -> None:
+    # Thresholds on the volume-normalised JS speed, i.e. nats/mL^2 -- not the
+    # bounded JS value itself.  JS between adjacent frames is second order in the
+    # volume step, so dividing by that step squared makes the speed independent
+    # of the sampling density; the numbers below are therefore not comparable to
+    # the ln(2) bound on plain JS.
+    SPEC_JS_ENTER = 0.05
+    SPEC_JS_EXIT = 0.008
+    SPEC_BASELINE_ENTER = 3e-7
+    SPEC_BASELINE_FRAMES = 12
+    SPEC_BASELINE_MAX_VOL = 0.30
+    SPEC_MIN_EVENT_VOL = 0.08
+    # A later excursion must be this much stronger to take over the endpoint.
+    SPEC_SUPERSEDE_RATIO = 1.5
+
+    # AMPD refinement rejects a peak beyond this fraction of the record: the
+    # largest AMPD scale only evaluates the middle of the window, so a peak in
+    # the tail is supported by few scales.  0.75 silently rejected valid late
+    # endpoints (a manual stop shortly after the equivalence point puts it near
+    # 0.8 of the record), so the guard sits just inside the unsupported tail.
+    AMPD_MAX_POSITION = 0.9
+
+    def __init__(
+        self,
+        flow_rate: float | None = None,
+        *,
+        use_jsd: bool = True,
+        enable_curvature: bool = True,
+        enable_kf: bool = True,
+        wavelengths: np.ndarray | None = None,
+    ) -> None:
         if flow_rate is None:
             from DataProcessor.calibration import FLOW_RATE
 
             self._flow_rate = FLOW_RATE
         else:
-            self._flow_rate = flow_rate
-
+            self._flow_rate = float(flow_rate)
+        self._use_jsd = bool(use_jsd)
+        self._enable_curvature = bool(enable_curvature)
+        self._enable_kf = bool(enable_kf)
+        self._spectrum_axis = None if wavelengths is None else np.asarray(wavelengths, dtype=np.float64).copy()
         self._reset_state()
 
     def _reset_state(self) -> None:
-        # 电位
+        # Potential state and causal derivative history.
         self._pot_v_smooth = _EWMA(self.POT_V_ALPHA)
         self._pot_d_smooth = _EWMA(self.POT_D_ALPHA)
         self._pot_prev_v: float | None = None
         self._pot_prev_t: float | None = None
-        self._pot_state: str = "IDLE"
+        self._pot_state = "IDLE"
         self._pot_ep_vol: float | None = None
         self._pot_ep_t: float | None = None
-        self._pot_min_d: float = 0.0
+        self._pot_min_d = 0.0
         self._pot_cand_vol: float | None = None
         self._pot_entry_vol: float | None = None
-        self._pot_done: bool = False
-        # 噪声观察（自适应阈值）
+        self._pot_done = False
         self._pot_d_vals: list[float] = []
-        self._pot_obs_vol: float = 0.0
-        self._pot_obs_done: bool = False
-        self._pot_enter_th: float = -1e9
-        self._pot_exit_th: float = -1e9
-        # dv/dt 全历史（用于 AMPD 精确定位）
+        self._pot_obs_done = False
+        self._pot_enter_th = -1e9
+        self._pot_exit_th = -1e9
         self._pot_raw_buf: list[float] = []
         self._pot_vol_buf: list[float] = []
+        self._pot_sample_count = 0
+        self._pot_last_d = 0.0
 
-        # 光谱
-        self._spec_ce_smooth = _EWMA(self.SPEC_CE_ALPHA)
-        self._spec_prev: np.ndarray | None = None
-        self._spec_state: str = "IDLE"
+        # Spectral state is delegated to the causal feature tracker.
+        self._spectral = SpectralFeatureTracker(
+            alpha=self.SPEC_CE_ALPHA,
+            js_enter=self.SPEC_JS_ENTER if self._use_jsd else self.SPEC_ENTER,
+            js_exit=self.SPEC_JS_EXIT if self._use_jsd else self.SPEC_EXIT,
+            baseline_enter=self.SPEC_BASELINE_ENTER,
+            baseline_frames=self.SPEC_BASELINE_FRAMES,
+            baseline_max_volume=self.SPEC_BASELINE_MAX_VOL,
+            confirm_frames=self.SPEC_CONFIRM_FRAMES,
+            min_event_volume=self.SPEC_MIN_EVENT_VOL,
+            supersede_ratio=self.SPEC_SUPERSEDE_RATIO,
+            wavelengths=self._spectrum_axis,
+            use_jsd=self._use_jsd,
+        )
+        self._spec_state = "IDLE"
         self._spec_ep_vol: float | None = None
         self._spec_ep_t: float | None = None
-        self._spec_max_ce: float = 0.0
-        self._spec_cand_vol: float | None = None
-        self._spec_rest_cnt: int = 0
-        self._spec_done: bool = False
+        self._spec_max_js = 0.0
+        self._spec_last_diag: dict[str, Any] = self._spectral.last
+        self._spec_done = False
 
-        self._last_pot_result: dict | None = None
-        self._last_spec_result: dict | None = None
+        self._kf = EndpointFusionKF() if self._enable_kf else None
+        # Endpoint pair the KF has already been run on, so a superseded value can
+        # be detected and re-fused instead of gated against a stale state.
+        self._kf_consumed: tuple[float | None, float | None] | None = None
+        self._last_pot_result: dict[str, Any] | None = None
+        self._last_spec_result: dict[str, Any] | None = None
+        self._last_reliability = self._build_reliability(None, None)
 
     # ================================================================
-    #  数据馈入
+    # Data input
     # ================================================================
 
     def feed_potential(self, vol: float, t: float, v: float) -> None:
-        """馈入电位数据点 (vol: mL, t: 秒, v: 伏特)。"""
-        v_sm = self._pot_v_smooth(v)
+        """Feed one potential point: volume in mL, time in seconds, voltage."""
+        vol = float(vol)
+        t = float(t)
+        v_sm = self._pot_v_smooth(float(v))
 
         if self._pot_prev_t is not None and self._pot_prev_v is not None:
             dt = t - self._pot_prev_t
@@ -200,43 +239,35 @@ class EndpointDetector:
         d_sm = self._pot_d_smooth(d_raw)
         self._pot_prev_v = v_sm
         self._pot_prev_t = t
-
-        # 缓存原始 dv/dt（用于 AMPD 精确定位）
-        self._pot_raw_buf.append(d_raw)
+        self._pot_last_d = d_sm
+        self._pot_sample_count += 1
+        self._pot_raw_buf.append(float(d_raw))
         self._pot_vol_buf.append(vol)
 
-        # --- 噪声观察阶段：学习 dv/dt 基线，计算自适应阈值 ---
         if not self._pot_obs_done:
             self._pot_d_vals.append(d_sm)
             if vol >= self.POT_OBSERVE_VOL:
-                arr = np.array(self._pot_d_vals)
+                arr = np.asarray(self._pot_d_vals, dtype=np.float64)
                 if len(arr) < 3:
-                    # 数据点过少，无法可靠估计标准差
-                    self._pot_obs_done = False
                     return
                 d_mean = float(np.mean(arr))
-                d_std = float(np.std(arr, ddof=1))  # 使用样本标准差（Bessel 校正）
-                
-                # 防止标准差过小导致阈值过于敏感
-                # 使用相对噪声下限：至少为均值的 1% 或绝对下限 1e-6
-                d_std = max(d_std, abs(d_mean) * 0.01, 1e-6)
-                
-                enter = d_mean - max(self.POT_MIN_ENTER, self.POT_ENTER_SIGMA * d_std)
-                exit_ = d_mean - max(self.POT_MIN_EXIT, self.POT_EXIT_SIGMA * d_std)
-                self._pot_enter_th = enter
-                self._pot_exit_th = exit_
+                d_std = max(float(np.std(arr, ddof=1)), abs(d_mean) * 0.01, 1e-6)
+                self._pot_enter_th = d_mean - max(
+                    self.POT_MIN_ENTER, self.POT_ENTER_SIGMA * d_std
+                )
+                self._pot_exit_th = d_mean - max(
+                    self.POT_MIN_EXIT, self.POT_EXIT_SIGMA * d_std
+                )
                 self._pot_obs_done = True
-                self._pot_d_vals = []  # 释放
-            return  # 观察期间不进入检测
+                self._pot_d_vals = []
+            return
 
-        # --- 终点检测（使用自适应阈值） ---
         if not self._pot_done:
-            if self._pot_state == "IDLE":
-                if d_sm < self._pot_enter_th:
-                    self._pot_state = "TRACKING"
-                    self._pot_min_d = d_sm
-                    self._pot_cand_vol = vol
-                    self._pot_entry_vol = vol
+            if self._pot_state == "IDLE" and d_sm < self._pot_enter_th:
+                self._pot_state = "TRACKING"
+                self._pot_min_d = d_sm
+                self._pot_cand_vol = vol
+                self._pot_entry_vol = vol
             elif self._pot_state == "TRACKING":
                 if d_sm < self._pot_min_d:
                     self._pot_min_d = d_sm
@@ -244,165 +275,283 @@ class EndpointDetector:
                 if (
                     d_sm > self._pot_exit_th
                     and self._pot_entry_vol is not None
-                    and (vol - self._pot_entry_vol) > self.POT_CONFIRM_VOL
+                    and self._pot_cand_vol is not None
+                    and vol - self._pot_entry_vol > self.POT_CONFIRM_VOL
                 ):
-                    assert self._pot_cand_vol is not None
                     self._pot_ep_vol = self._pot_cand_vol
                     self._pot_ep_t = self._pot_cand_vol / self._flow_rate
                     self._pot_state = "END_CONFIRMED"
                     self._pot_done = True
 
-    def feed_spectrum(self, vol: float, spectrum: np.ndarray) -> None:
-        """馈入光谱数据 (vol: mL, spectrum: 10 通道或全光谱数组)。"""
-        ce_raw = 0.0
+    def feed_spectrum(
+        self,
+        vol: float,
+        spectrum: np.ndarray,
+        t: float | None = None,
+    ) -> None:
+        """Feed one raw-channel or reconstructed full-spectrum frame."""
+        diag = self._spectral.update(float(vol), np.asarray(spectrum), t=t)
+        self._spec_last_diag = diag
+        self._spec_state = str(diag["state"])
+        self._spec_max_js = max(self._spec_max_js, float(diag.get("max_js", 0.0)))
+        candidate = self._spectral.endpoint_volume
+        # The tracker reports the strongest excursion so far, so the candidate can
+        # move when a later, clearly stronger event supersedes an early transient.
+        if candidate is not None and candidate != self._spec_ep_vol:
+            self._spec_ep_vol = float(candidate)
+            self._spec_ep_t = self._spec_ep_vol / self._flow_rate
+            self._spec_done = True
 
-        if self._spec_prev is not None:
-            p = np.maximum(spectrum.astype(np.float64), 0.0)
-            q = np.maximum(self._spec_prev.astype(np.float64), 0.0)
-            p /= p.sum() + 1e-12
-            q /= q.sum() + 1e-12
-            ce_raw = -float(np.sum(p * np.log(np.maximum(q, 1e-12))))
-        self._spec_prev = spectrum.copy()
-
-        ce_sm = self._spec_ce_smooth(ce_raw)
-
-        if not self._spec_done:
-            if self._spec_state == "IDLE":
-                if ce_sm > self.SPEC_ENTER:
-                    self._spec_state = "IN_CHANGE"
-                    self._spec_max_ce = ce_sm
-                    self._spec_cand_vol = vol
-            elif self._spec_state == "IN_CHANGE":
-                if ce_sm > self._spec_max_ce:
-                    self._spec_max_ce = ce_sm
-                    self._spec_cand_vol = vol
-                if ce_sm < self.SPEC_EXIT:
-                    self._spec_rest_cnt += 1
-                    if self._spec_rest_cnt >= self.SPEC_CONFIRM_FRAMES:
-                        assert self._spec_cand_vol is not None
-                        self._spec_ep_vol = self._spec_cand_vol
-                        self._spec_ep_t = self._spec_cand_vol / self._flow_rate
-                        self._spec_state = "END_CONFIRMED"
-                        self._spec_done = True
-                else:
-                    self._spec_rest_cnt = 0
+    def set_spectrum_axis(self, wavelengths: np.ndarray | None) -> None:
+        """Configure the wavelength axis used by causal cross-curvature."""
+        if wavelengths is None:
+            self._spectrum_axis = None
+        else:
+            self._spectrum_axis = np.asarray(wavelengths, dtype=np.float64).copy()
+        self._spectral.set_wavelengths(self._spectrum_axis)
 
     # ================================================================
-    #  检测
+    # Results and reliability
     # ================================================================
 
-    def detect(self) -> dict | None:
-        """返回当前终点检测结果。
-
-        返回值结构::
-
-            {
-                "volume": 1.091,
-                "time": 178.9,
-                "confidence": "high" / "medium" / "low",
-                "method": "consensus" / "potential_only" / "spectral_only" / "conflict",
-                "potential": {...} | None,
-                "spectral": {...} | None,
-            }
-        """
-        pot = self._build_pot_result()
-        spec = self._build_spec_result()
-
-        if pot is not None and spec is not None:
-            diff = abs(pot["volume"] - spec["volume"])
-            if diff < 0.3:
-                v = (pot["volume"] + spec["volume"]) / 2.0
-                return {
-                    "volume": round(v, 3),
-                    "time": round((pot["time"] + spec["time"]) / 2.0, 3),
-                    "confidence": "high",
-                    "method": "consensus",
-                    "potential": pot,
-                    "spectral": spec,
-                }
-            return {
-                "volume": round(pot["volume"], 3),
-                "time": round(pot["time"], 3),
-                "confidence": "low",
-                "method": "conflict",
-                "potential": pot,
-                "spectral": spec,
-                "warning": f"电位{pot['volume']:.3f}mL vs "
-                f"光谱{spec['volume']:.3f}mL 差异过大",
-            }
-
-        if pot is not None:
-            return {
-                "volume": round(pot["volume"], 3),
-                "time": round(pot["time"], 3),
-                "confidence": "medium",
-                "method": "potential_only",
-                "potential": pot,
-                "spectral": None,
-            }
-        if spec is not None:
-            return {
-                "volume": round(spec["volume"], 3),
-                "time": round(spec["time"], 3),
-                "confidence": "medium",
-                "method": "spectral_only",
-                "potential": None,
-                "spectral": spec,
-            }
-        return None
-
-    def refine_with_ampd(self) -> float | None:
-        """用 AMPD 对 dv/dt 历史数据精确定位终点。
-
-        对 dv/dt 信号取反后找最显著峰，峰位对应的体积即为终点。
-        在 AMPD 定位后增加合理性校验：若结果过于接近缓冲区末端
-        （导数尚未充分恢复），判定为无效，保留原有 T=1 值。
-        返回 refined volume (mL)，若无法定位或结果不可信则返回 None。
-        """
-        if len(self._pot_raw_buf) < 20:
-            return None
-        arr = np.array(self._pot_raw_buf, dtype=np.float64)
-        # 取反使谷底变高峰
-        neg = -arr
-        idx = _ampd_peak_idx(neg)
-        if idx is None:
-            return None
-        # 合理性校验：AMPD 结果不应位于缓冲区最后 25% 位置
-        # （说明导数还在下降或刚过拐点，未充分恢复）
-        if idx >= len(self._pot_vol_buf) * 0.75:
-            return None
-        refined_vol = self._pot_vol_buf[idx]
-        # 更新 _pot_ep_vol
-        self._pot_ep_vol = refined_vol
-        self._pot_ep_t = refined_vol / self._flow_rate
-        return refined_vol
-
-    def _build_pot_result(self) -> dict | None:
+    def _build_pot_result(self) -> dict[str, Any] | None:
         if self._pot_ep_vol is None:
             return None
-        return {
+        result: dict[str, Any] = {
             "volume": self._pot_ep_vol,
             "time": self._pot_ep_t or (self._pot_ep_vol / self._flow_rate),
             "min_dvdt": round(self._pot_min_d, 2),
             "state": self._pot_state,
         }
+        if self._kf is not None:
+            kf = self._kf.snapshot()
+            for field in ("endpoint_std", "nis", "innovation"):
+                kf_value = kf.get(field)
+                if kf_value is not None:
+                    result[field] = kf_value
+        return result
 
-    def _build_spec_result(self) -> dict | None:
+    def _build_spec_result(self) -> dict[str, Any] | None:
         if self._spec_ep_vol is None:
             return None
+        diag = self._spec_last_diag
+        # max_ce is retained as a schema alias for old exports/consumers.
         return {
             "volume": self._spec_ep_vol,
             "time": self._spec_ep_t or (self._spec_ep_vol / self._flow_rate),
-            "max_ce": round(self._spec_max_ce, 8),
+            "max_ce": round(self._spec_max_js, 8),
+            "max_js": round(self._spec_max_js, 8),
+            "js_local": round(float(diag.get("js_local", 0.0)), 8),
+            "js_speed": round(float(diag.get("js_speed", 0.0)), 8),
+            "js_base": round(float(diag.get("js_base", 0.0)), 8),
+            "cross_curvature": round(float(diag.get("cross_curvature", 0.0)), 8)
+            if self._enable_curvature
+            else None,
+            "event_maturity": float(diag.get("event_maturity", 0.0)),
+            "recovery_frames": int(diag.get("recovery_frames", 0)),
+            "event_count": int(diag.get("event_count", 0)),
+            "superseded_count": int(diag.get("superseded_count", 0)),
+            "event_peak_speed": round(float(diag.get("event_peak_speed", 0.0)), 8),
             "state": self._spec_state,
         }
 
+    def _build_reliability(
+        self,
+        pot: dict[str, Any] | None,
+        spec: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        pot_confirmed = pot is not None
+        spec_confirmed = spec is not None
+        diagnostic = self._spec_last_diag
+        kf = self._kf.snapshot() if self._kf is not None else {}
+        if pot_confirmed and spec_confirmed:
+            status = "CONFIRMED" if self._kf is not None and self._kf.can_fuse else "CONFLICT"
+        elif pot_confirmed or spec_confirmed:
+            status = "CONFIRMED" if (pot_confirmed and not self._enable_kf) else "CANDIDATE"
+        elif self._pot_state == "TRACKING" or self._spec_state == "IN_CHANGE":
+            status = "CONFIRMING"
+        elif self._pot_sample_count == 0 and diagnostic.get("sample_count", 0) == 0:
+            status = "UNOBSERVABLE"
+        else:
+            status = "EARLY_WARNING"
+
+        reasons: list[str] = []
+        if diagnostic.get("data_quality") not in {"ok", "no_spectrum"}:
+            reasons.append(str(diagnostic["data_quality"]))
+        if diagnostic.get("repeated_volume_count", 0):
+            reasons.append("repeated_spectral_volume")
+        if diagnostic.get("nonmonotonic_count", 0):
+            reasons.append("nonmonotonic_volume")
+        if self._kf is not None and pot_confirmed and spec_confirmed and not self._kf.can_fuse:
+            reasons.append("kf_innovation_gate")
+        if diagnostic.get("superseded_count", 0):
+            reasons.append("spectral_endpoint_superseded")
+        if not diagnostic.get("baseline_ready", False):
+            reasons.append("baseline_pending")
+
+        if pot_confirmed and spec_confirmed:
+            agreement = abs(float(pot["volume"]) - float(spec["volume"]))
+        else:
+            agreement = None
+        return {
+            "status": status,
+            "data_quality": {
+                "potential_samples": self._pot_sample_count,
+                "spectral_samples": int(diagnostic.get("sample_count", 0)),
+                "valid_spectral_frames": self._spectral.valid_frame_count,
+                "baseline_ready": bool(diagnostic.get("baseline_ready", False)),
+                "repeated_spectral_volume": int(diagnostic.get("repeated_volume_count", 0)),
+                "nonmonotonic_volume": int(diagnostic.get("nonmonotonic_count", 0)),
+                "last_frame": diagnostic.get("data_quality", "no_spectrum"),
+            },
+            "potential_evidence": pot is not None,
+            "spectral_evidence": spec is not None,
+            "modal_consistency": {
+                "agreement_mL": agreement,
+                "kf_consistent": bool(self._kf.can_fuse) if self._kf is not None else None,
+            },
+            "event_maturity": float(diagnostic.get("event_maturity", 0.0)),
+            "spectral_events": int(diagnostic.get("event_count", 0)),
+            "spectral_superseded": int(diagnostic.get("superseded_count", 0)),
+            "endpoint_std": kf.get("endpoint_std"),
+            "spectral_delay": kf.get("spectral_delay"),
+            "nis": kf.get("nis"),
+            "innovation": kf.get("innovation"),
+            "reason_codes": reasons,
+        }
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return current causal feature and reliability diagnostics."""
+        pot = self._build_pot_result()
+        spec = self._build_spec_result()
+        self._last_reliability = self._build_reliability(pot, spec)
+        return {
+            "potential_state": self._pot_state,
+            "spectral_state": self._spec_state,
+            "potential": pot,
+            "spectral": spec,
+            "spectral_features": dict(self._spec_last_diag),
+            "kf": self._kf.snapshot() if self._kf is not None else None,
+            "reliability": self._last_reliability,
+        }
+
+    def _consume_kf_observations(
+        self, pot: dict[str, Any] | None, spec: dict[str, Any] | None
+    ) -> None:
+        if self._kf is None:
+            return
+        pot_vol = None if pot is None else float(pot["volume"])
+        spec_vol = None if spec is None else float(spec["volume"])
+        pair = (pot_vol, spec_vol)
+        if pair == self._kf_consumed:
+            return
+        # Either endpoint can be revised after the KF has already consumed it: the
+        # spectral candidate when a stronger excursion supersedes an early
+        # transient, the potential one after AMPD refinement.  Gating the revised
+        # value against a state built from the stale one would reject the
+        # correction, so the filter is re-run from scratch on the current pair.
+        self._kf.reset()
+        if pot_vol is not None:
+            self._kf.observe("potential", pot_vol, token=("potential", pot_vol))
+        if spec_vol is not None:
+            self._kf.observe("spectral", spec_vol, token=("spectral", spec_vol))
+        self._kf_consumed = pair
+
+    def detect(self) -> dict[str, Any] | None:
+        """Return a backward-compatible endpoint result with diagnostics."""
+        pot = self._build_pot_result()
+        spec = self._build_spec_result()
+        if pot is None and spec is None:
+            self._last_reliability = self._build_reliability(None, None)
+            return None
+
+        self._consume_kf_observations(pot, spec)
+        # Rebuild child results after the first observation so exported NIS/std
+        # fields describe the observation that was just consumed.
+        pot = self._build_pot_result()
+        spec = self._build_spec_result()
+        reliability = self._build_reliability(pot, spec)
+        self._last_reliability = reliability
+        result: dict[str, Any]
+
+        if pot is not None and spec is not None:
+            kf = self._kf.snapshot() if self._kf is not None else None
+            if self._kf is not None and self._kf.can_fuse and kf is not None:
+                volume = float(kf["endpoint_volume"])
+                result = {
+                    "volume": round(volume, 3),
+                    "time": round(volume / self._flow_rate, 3),
+                    "confidence": "high",
+                    "method": "consensus",
+                    "potential": pot,
+                    "spectral": spec,
+                    "reliability": reliability,
+                }
+            elif self._kf is None and abs(pot["volume"] - spec["volume"]) < 0.3:
+                volume = (pot["volume"] + spec["volume"]) / 2.0
+                result = {
+                    "volume": round(volume, 3),
+                    "time": round((pot["time"] + spec["time"]) / 2.0, 3),
+                    "confidence": "high",
+                    "method": "consensus",
+                    "potential": pot,
+                    "spectral": spec,
+                    "reliability": reliability,
+                }
+            else:
+                result = {
+                    "volume": round(float(pot["volume"]), 3),
+                    "time": round(float(pot["time"]), 3),
+                    "confidence": "low",
+                    "method": "conflict",
+                    "potential": pot,
+                    "spectral": spec,
+                    "warning": f"电位{pot['volume']:.3f}mL vs 光谱{spec['volume']:.3f}mL "
+                    "未通过创新一致性门控",
+                    "reliability": reliability,
+                }
+            return result
+
+        if pot is not None:
+            return {
+                "volume": round(float(pot["volume"]), 3),
+                "time": round(float(pot["time"]), 3),
+                "confidence": "medium",
+                "method": "potential_only",
+                "potential": pot,
+                "spectral": None,
+                "reliability": reliability,
+            }
+        assert spec is not None
+        return {
+            "volume": round(float(spec["volume"]), 3),
+            "time": round(float(spec["time"]), 3),
+            "confidence": "medium",
+            "method": "spectral_only",
+            "potential": None,
+            "spectral": spec,
+            "reliability": reliability,
+        }
+
+    def refine_with_ampd(self) -> float | None:
+        """Use offline AMPD refinement after enough historical samples exist."""
+        if len(self._pot_raw_buf) < 20:
+            return None
+        arr = np.asarray(self._pot_raw_buf, dtype=np.float64)
+        idx = _ampd_peak_idx(-arr)
+        if idx is None or idx >= len(self._pot_vol_buf) * self.AMPD_MAX_POSITION:
+            return None
+        refined_vol = self._pot_vol_buf[idx]
+        self._pot_ep_vol = refined_vol
+        self._pot_ep_t = refined_vol / self._flow_rate
+        return refined_vol
+
     # ================================================================
-    #  生命周期
+    # Lifecycle and compatibility properties
     # ================================================================
 
     def reset(self) -> None:
-        """清空所有滤波器与状态机，准备新一轮滴定。"""
+        """Clear all filters and state for a new titration."""
         self._reset_state()
 
     @property
@@ -415,6 +564,8 @@ class EndpointDetector:
 
     @property
     def endpoint_volume(self) -> float | None:
+        if self._kf is not None and self._kf.can_fuse:
+            return float(self._kf.x[0])
         return self._pot_ep_vol or self._spec_ep_vol
 
 
