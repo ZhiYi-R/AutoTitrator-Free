@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 import warnings
 from pathlib import Path
@@ -22,11 +23,15 @@ from DataProcessor.calibration import FLOW_RATE, update_from_file
 
 update_from_file()
 
-DATA = Path(
-    "/home/zhiyir/文档/xwechat_files/wxid_l267qu0nkh512_1601/msg/attach/"
-    "d819785e5916791e7d3b8b1199d7af8d/2026-06/Rec/"
-    "da42816e8394beff/F/1/titration_result.xlsx"
+parser = argparse.ArgumentParser(description="在线滴定终点检测 — 实时回放验证")
+parser.add_argument(
+    "--input",
+    type=Path,
+    required=True,
+    help="滴定数据 xlsx（含「电位-体积曲线」sheet）",
 )
+args = parser.parse_args()
+DATA = args.input
 
 print("[1] 加载数据 …")
 wb = openpyxl.load_workbook(str(DATA), read_only=True)

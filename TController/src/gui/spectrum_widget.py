@@ -22,7 +22,7 @@ class SpectrumWidget(_BlitPlot):
 
         self._set_xlabel(i18n.tr("plot.wavelength"))
         self._set_ylabel(i18n.tr("plot.intensity"))
-        self._ax.set_xlim(380, 1000)
+        self._ax.set_xlim(380, 1100)
         self._ax.set_ylim(0, 1)
         self._ax.grid(True, alpha=0.25)
 

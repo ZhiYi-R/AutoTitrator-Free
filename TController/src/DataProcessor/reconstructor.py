@@ -2,8 +2,8 @@
 AS7341 10 通道 → 全光谱重建。
 
 使用 ams-OSRAM 官方 Golden Device 校准矩阵将 10 通道
-(F1–F8, Clear, NIR) 原始 ADC 值重建为 380–1000 nm
-连续全光谱（1 nm 步长，621 点）。
+(F1–F8, Clear, NIR) 原始 ADC 值重建为 380–1100 nm
+连续全光谱（1 nm 步长，721 点）。
 
 重建流程::
 
@@ -46,7 +46,7 @@ def is_available() -> bool:
 
 
 def get_wavelengths() -> np.ndarray:
-    """返回波长数组 (380–1000 nm, 1 nm 步长)。"""
+    """返回波长数组 (380–1100 nm, 1 nm 步长)。"""
     return _load()["wavelengths"].copy()
 
 
@@ -93,6 +93,6 @@ def reconstruct(
     corrected = fac * np.maximum(raw - ofs, 0.0)
     spectrum = np.maximum(
         cal["matrix"] @ corrected, 0.0
-    )  # (721, 10) @ (10,) 2192 (721,)
+    )  # (721, 10) @ (10,) → (721,)
 
     return cal["wavelengths"].copy(), spectrum

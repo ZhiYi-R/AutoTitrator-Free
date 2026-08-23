@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 import warnings
 from pathlib import Path
@@ -18,11 +19,15 @@ sys.path.insert(0, str(SRC))
 
 from DataProcessor.calibration import FLOW_RATE, update_from_file
 
-DATA_FILE = Path(
-    "/home/zhiyir/文档/xwechat_files/wxid_l267qu0nkh512_1601/msg/attach/"
-    "d819785e5916791e7d3b8b1199d7af8d/2026-06/Rec/"
-    "da42816e8394beff/F/1/titration_result.xlsx"
+parser = argparse.ArgumentParser(description="TController 滴定终点检测算法验证（离线回放）")
+parser.add_argument(
+    "--input",
+    type=Path,
+    required=True,
+    help="滴定数据 xlsx（含「电位-体积曲线」「光谱数据」两个 sheet）",
 )
+args = parser.parse_args()
+DATA_FILE = args.input
 OUT_DIR = PROJ / "data" / "validation"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
