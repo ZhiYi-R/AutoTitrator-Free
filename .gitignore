@@ -1,4 +1,4 @@
-# Python
+# Python tooling (firmware register generator)
 __pycache__/
 *.py[cod]
 *$py.class
@@ -36,7 +36,10 @@ CLAUDE.md
 continue.config.json
 .agents/
 .zcode/
+.qoder/
+embedded-dev-skills/
 docs/MoonEmbedded/
+skills-lock.json
 
 # Embedded build artifacts
 *.o
@@ -50,9 +53,15 @@ build/
 *.log
 tmp/
 temp/
+tmp_diff/
 
-# 用户运行时偏好（含机器相关的 last_port 等）
+# 上位机运行时状态（含机器相关的串口和历史记录）
 TController/data/settings.json
+TController/data/pump2_calibration.json
+TController/app/ui-next/node_modules/
+TController/app/ui-next/.next/
+TController/app/ui-next/out/
+TController/app/ui-next/.hallmark/
 
 # SCons
 .sconsign.dblite

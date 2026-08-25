@@ -1,8 +1,4 @@
-# 开发/构建/验证依赖
-# 含运行时依赖 + MCU 固件构建 + 离线验证脚本所需
-
--r requirements.txt
+# 固件构建与寄存器生成依赖
 
 scons>=4.8,<5               # MCU 固件构建 (SConstruct)
-ruff>=0.6,<1                # Python linter & formatter
-pyright>=1.1,<2             # Python 静态类型检查
+cmsis-svd>=0.6,<1           # CMSIS-SVD 外设头文件生成
