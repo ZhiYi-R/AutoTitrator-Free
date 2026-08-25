@@ -28,7 +28,7 @@ Connect PB8 (SCL) and PB9 (SDA) to the matching AS7341 pins, and pull both up to
 
 ### Potential measurement (ADC1 → PA0)
 
-Connect the electrode to PA0 and wire the reference and ground properly. The potential is analog and sampled by TIM3 at 1kHz. Keep the signal traces away from the pump PWM lines to reduce interference.
+The electrode connects to PA0 through the analog front end (AFE); wire the reference and ground properly. The potential is analog and sampled by TIM3 at 1kHz. Keep the signal traces away from the pump PWM lines to reduce interference.
 
 ### Peristaltic pumps (TIM4 → PB6/PB7)
 
@@ -40,8 +40,10 @@ The on-board LED lights after startup and indicates the system is running.
 
 ## 3. Power supply
 
-- The MCU and sensors use 3.3V.
-- The peristaltic pump motors need a separate supply (usually 12V) through a driver board.
+The whole board is powered by a single 5V USB supply; there is no other power input on the board:
+
+- The peristaltic pumps use 5V, through their driver boards.
+- The MCU and the remaining peripherals are powered at 3.3V by the MCU's internal LDO.
 - The pump and sensor grounds must share the MCU ground, or the PWM signals will be corrupted.
 
 ## 4. Notes on rewiring
