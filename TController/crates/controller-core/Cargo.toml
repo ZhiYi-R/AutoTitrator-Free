@@ -1,0 +1,17 @@
+[package]
+name = "controller-core"
+description = "TController 上位机后端核心（协议 + 数据处理 + 工作流）的 Rust 移植"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ndarray = "0.16"
+ndarray-npy = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serialport = "4"
+thiserror = "2"
+
+[dev-dependencies]
+approx = "0.5"

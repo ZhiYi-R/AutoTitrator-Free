@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoTitrator — TController</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      background: #f5f6f8;
+      color: #1f2328;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #14161a; color: #e6e8eb; }
+    }
+    .card {
+      max-width: 560px;
+      padding: 48px 56px;
+      border-radius: 16px;
+      background: rgba(127, 127, 127, 0.08);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    p.sub { color: gray; margin: 0 0 28px; }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 24px; font-size: 14px; }
+    dt { color: gray; }
+    dd { margin: 0; font-family: Consolas, monospace; word-break: break-all; }
+    footer { margin-top: 32px; font-size: 12px; color: gray; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>TController（Rust 重写进行中）</h1>
+    <p class="sub">Tauri 前端占位页 — 后端核心（协议 / 终点检测 / 工作流）已完成移植并通过测试。</p>
+    <dl>
+      <dt>后端版本</dt><dd id="version">…</dd>
+      <dt>校准数据</dt><dd id="calibre">…</dd>
+      <dt>可用串口</dt><dd id="ports">…</dd>
+    </dl>
+    <footer>UI 将在后续迭代中实现：连接 / 滴定控制 / 实时曲线 / 校准 / 维护。</footer>
+  </main>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+    async function refresh() {
+      try {
+        const info = await invoke("backend_info");
+        document.getElementById("version").textContent = "controller-core " + info.version;
+        document.getElementById("calibre").textContent = info.calibre_found
+          ? info.calibre_path
+          : "calibre.npz 未找到";
+        document.getElementById("ports").textContent =
+          info.ports.length ? info.ports.join(", ") : "（无）";
+      } catch (err) {
+        document.getElementById("version").textContent = "调用失败: " + err;
+      }
+    }
+    refresh();
+  </script>
+</body>
+</html>
