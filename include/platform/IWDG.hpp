@@ -34,6 +34,12 @@ public:
     /** IWDG 寄存器写使能密钥 */
     static constexpr uint16_t KEY_WRITE_ACCESS = 0x5555;
 
+    /** 同步等待上限，防止低速/异常时钟域永久阻塞启动 */
+    static constexpr uint32_t SYNC_TIMEOUT = 1000000;
+
+    /** 初始化失败标志，可由调试器或诊断代码读取 */
+    inline static volatile bool g_initFailed{false};
+
     /**
      * @brief 初始化并启动独立看门狗（~5s 超时）
      *
@@ -42,22 +48,40 @@ public:
      */
     static void initialize() noexcept {
         using namespace STM32F103;
-        /** 写访问 → 配置 PR/RLR → 喂狗加载 → 再启动（RM0008 推荐顺序） */
+
+        /** 启动 IWDG 以启动其独立 LSI 时钟域。 */
+        IWDG::KR::Write(KEY_START);
         IWDG::KR::Write(KEY_WRITE_ACCESS);
+
         /** 设置预分频（等待 PVU 清除） */
         IWDG::PR::WritePR(PRESCALER);
-        while (IWDG::SR::ReadPVU() != 0) {
-            /** 等待预分频值更新完成 */
+        uint32_t timeout = SYNC_TIMEOUT;
+        while (IWDG::SR::ReadPVU() != 0 && timeout-- != 0) {
         }
+        if (IWDG::SR::ReadPVU() != 0) {
+            g_initFailed = true;
+            return;
+        }
+
         /** 设置重载值（等待 RVU 清除） */
         IWDG::RLR::WriteRL(RELOAD);
-        while (IWDG::SR::ReadRVU() != 0) {
-            /** 等待重载值更新完成 */
+        timeout = SYNC_TIMEOUT;
+        while (IWDG::SR::ReadRVU() != 0 && timeout-- != 0) {
         }
+        if (IWDG::SR::ReadRVU() != 0) {
+            g_initFailed = true;
+            return;
+        }
+
         /** 首次喂狗，加载计数器 */
         IWDG::KR::Write(KEY_RELOAD);
-        /** 启动 IWDG（写 0xCCCC 到 KR）；启动后不可关闭 */
-        IWDG::KR::Write(KEY_START);
+    }
+
+    /**
+     * @brief 返回初始化是否因时钟域同步失败
+     */
+    static auto initFailed() noexcept -> bool {
+        return g_initFailed;
     }
 
     /**
