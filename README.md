@@ -185,13 +185,12 @@ Rust/Tauri 上位机通过串口与 MCU 通信，提供：
 ### 运行方式
 
 ```sh
-cd TController
-cargo test --workspace
-npm --prefix app/ui-next install
-npm --prefix app/ui-next run build
+cd TController/app/src-tauri
+cargo tauri dev       # 自动启动 Next.js 开发服务器
+cargo tauri build     # 自动执行 Next.js 静态导出并打包 Tauri 应用
 ```
 
-开发模式下由 Tauri 加载 `app/ui-next/out`；浏览器直接访问 Next 开发服务器时使用显式 mock adapter，真实 Tauri 环境始终以 Rust backend snapshot 为状态源。
+单独验证前端时，可在 `TController/app/ui-next` 下运行 `npm run build` 或 `npm run lint`。浏览器直接访问 Next 开发服务器时使用显式 mock adapter，真实 Tauri 环境始终以 Rust backend snapshot 为状态源。
 
 ## 注意事项
 

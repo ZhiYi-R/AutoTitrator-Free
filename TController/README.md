@@ -42,10 +42,25 @@ AMPD 精修在短记录（大尺度不覆盖尾部峰）时返回 `None`；savgo
 ## 使用
 
 ```bash
-cargo test -p controller-core
+cd app/src-tauri
+cargo tauri dev       # 自动启动 Next.js 开发服务器
+cargo tauri build     # 自动执行 Next.js 静态导出并打包 Tauri 应用
+```
+
+单独运行后端测试：
+
+```bash
+cargo test --workspace
 cargo check --workspace
-npm --prefix app/ui-next run build
-npm --prefix app/ui-next run lint
+```
+
+单独验证前端：
+
+```bash
+cd app/ui-next
+npm install
+npm run build
+npm run lint
 ```
 
 `calibre.npz` 探测顺序：环境变量 `AUTOTITRATOR_CALIBRE` → exe 同级 →
