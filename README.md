@@ -1,6 +1,6 @@
 # AutoTitrator-Free
 
-多模态自动滴定控制器 —— STM32F103 裸机固件 + Python 上位机。
+多模态自动滴定控制器 —— STM32F103 裸机固件 + Rust/Tauri 上位机。
 
 ## 项目概览
 
@@ -13,7 +13,7 @@
 | 语言标准 | C++23，裸机，无 HAL / 无 RTOS / 无堆 |
 | 构建系统 | SCons |
 | 调试器 | ST-Link V2 (SWD) |
-| 上位机 | Python 3.12+，ttkbootstrap + matplotlib |
+| 上位机 | Rust/Tauri 2 + Next.js |
 | 授权 | [PolyForm Shield 1.0.0](LICENSE) |
 
 ## 目录结构
@@ -35,22 +35,16 @@ AutoTitrator-Free
 │   ├── hal/                # 外设 HAL 驱动
 │   ├── device/             # 设备级驱动
 │   └── protocol/           # 通信协议栈
-├── TController/            # Python 上位机
-│   ├── src/
-│   │   ├── main.py         # GUI 入口
-│   │   ├── Communication/  # 串口通信与协议解析
-│   │   ├── DataProcessor/  # 终点检测、光谱重建、泵校准
-│   │   └── gui/            # ttkbootstrap UI 与 matplotlib 绘图
-│   ├── data/               # 校准数据
-│   └── scripts/            # 离线验证脚本
+├── TController/            # Rust/Tauri 上位机
+│   ├── crates/controller-core/ # 协议、检测、重建与工作流
+│   ├── app/src-tauri/      # Tauri 命令与后端状态
+│   ├── app/ui-next/        # Next.js 仪器工作台
+│   └── data/               # calibre.npz 与运行时状态
 ├── scripts/                # 代码生成脚本
 │   └── generate_stm32f103.py   # 从 CMSIS-SVD 生成外设头文件
-├── requirements.txt        # 上位机运行时依赖
-├── requirements-dev.txt    # 开发/构建依赖
+├── requirements-dev.txt    # 固件构建与寄存器生成依赖
 ├── openocd.cfg             # OpenOCD 调试配置
 ├── .gdbinit                # GDB 初始化脚本
-├── pyrightconfig.json      # Python 类型检查配置
-├── ruff.toml               # Python lint 配置
 ├── README.md
 └── LICENSE
 ```
@@ -143,60 +137,61 @@ scons -c
 
 ```sh
 # Terminal 1 — 启动 OpenOCD
-cd D:/Projects/AutoTitrator-Free
+cd D:/Projects/AutoTitrator/Firmware
 openocd -f openocd.cfg
 
 # Terminal 2 — 连接 GDB
 arm-none-eabi-gdb build/AutoTitrator-Firmware.elf -x .gdbinit
 ```
 
-### 上位机运行
+### 寄存器生成工具
 
-```sh
-uv pip install -r requirements.txt
-uv run python TController/src/main.py
-```
-
-开发依赖（含 SCons、ruff、pyright）使用：
+寄存器头文件生成脚本需要 `cmsis-svd`，开发依赖使用：
 
 ```sh
 uv pip install -r requirements-dev.txt
+uv run scripts/generate_stm32f103.py
 ```
 
 ## 上位机（TController）
 
-Python 上位机通过串口与 MCU 通信，提供：
+Rust/Tauri 上位机通过串口与 MCU 通信，提供：
 
 - 实时光谱曲线与电位曲线
 - 在线滴定终点检测
 - 双泵控制与进度显示
 - 泵校准与 pH 电极校准
-- 数据记录与 Excel 导出
+- 状态持久化、运行历史和可靠性诊断
 
 ### 主要模块
 
 | 目录 | 功能 |
 |------|------|
-| `TController/src/Communication/` | 串口后台线程、协议帧解析、事件队列 |
-| `TController/src/DataProcessor/` | 终点检测（EWMA + 自适应阈值 + AMPD）、光谱重建、泵校准 |
-| `TController/src/gui/` | ttkbootstrap 主窗口、绘图控件、校准/维护标签页 |
-| `TController/scripts/` | 离线验证与实时回放脚本 |
+| `TController/crates/controller-core/src/protocol/` | 串口线程、协议帧解析与重试 |
+| `TController/crates/controller-core/src/processing/` | 终点检测、光谱重建、泵校准 |
+| `TController/crates/controller-core/src/workflow.rs` | 滴定工作流与泵控状态机 |
+| `TController/app/src-tauri/` | 后端状态快照、命令和持久化 |
+| `TController/app/ui-next/` | Next.js 仪器工作台 |
 
 ### 技术栈
 
-| 组件 | 库 | 授权 |
-|------|-----|------|
-| UI 框架 | ttkbootstrap | MIT |
-| 绘图 | matplotlib（blit 加速） | PSF/BSD |
-| 数值计算 | numpy | BSD-3 |
-| 串口通信 | pyserial | BSD-3 |
-| 数据导出 | openpyxl | MIT |
+| 组件 | 技术 |
+|------|------|
+| UI 框架 | Tauri 2 + Next.js |
+| 状态管理 | Rust backend snapshot + Zustand 视图缓存 |
+| 数值计算 | Rust ndarray / ndarray-npy |
+| 串口通信 | Rust serialport |
 
-### 线程模型
+### 运行方式
 
-- 串口读取：`threading.Thread` + `queue.Queue`
-- GUI 轮询：`root.after()` 递归调度，约 80 ms 刷新绘图
-- 通信事件：`ProtocolHandler.poll()` 排空队列并分发回调
+```sh
+cd TController
+cargo test --workspace
+npm --prefix app/ui-next install
+npm --prefix app/ui-next run build
+```
+
+开发模式下由 Tauri 加载 `app/ui-next/out`；浏览器直接访问 Next 开发服务器时使用显式 mock adapter，真实 Tauri 环境始终以 Rust backend snapshot 为状态源。
 
 ## 注意事项
 
