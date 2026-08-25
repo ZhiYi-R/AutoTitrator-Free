@@ -1,0 +1,263 @@
+name: Build
+
+on:
+  push:
+    # 必须显式写 "**"：push 下只要出现 tags 过滤器，缺省的 branches 就等于
+    # 「不匹配任何分支」，分支推送会静默不触发
+    branches: ["**"]
+    tags:
+      - "RELEASE-*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  # 打标签的那次构建要产出 Release，不能被后续推送取消
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  # ---------------------------------------------------------------- 固件
+  firmware:
+    name: 固件 (STM32F103 / cortex-m3)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 ARM GCC 工具链
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: "13.3.Rel1"
+
+      # 用 setup-python 的解释器而不是系统 Python：24.04 的系统 Python
+      # 被标记为 externally-managed，直接 pip install 会被拒绝。
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装 SCons
+        run: python -m pip install --upgrade pip scons
+
+      - name: 构建 elf + hex
+        run: scons
+
+      - name: 构建 lst + map
+        run: scons lst
+
+      - name: 上传固件产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-firmware
+          path: |
+            build/AutoTitrator-Firmware.elf
+            build/AutoTitrator-Firmware.hex
+          if-no-files-found: error
+
+      # map/lst 只用于排查问题，不进 Release（Release 只收 dist-* 制品）
+      - name: 上传固件调试信息
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-debug
+          path: |
+            build/AutoTitrator-Firmware.map
+            build/AutoTitrator-Firmware.lst
+          if-no-files-found: error
+
+  # -------------------------------------------------------------- 上位机
+  tcontroller:
+    name: 上位机 (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-x86_64
+            runner: windows-latest
+            bundles: msi,nsis
+          # WiX v3 的 arm64 支持没在 Windows on ARM 上验证过，这条腿只出 NSIS。
+          # Tauri 官方文档同样只保证 NSIS 支持 ARM64。
+          - label: windows-aarch64
+            runner: windows-11-arm
+            bundles: nsis
+          # 用 24.04 而不是 22.04：22.04 镜像从 2026-09-17 起进入弃用期。
+          # 代价是 deb/rpm/AppImage 的 glibc 下限变成 2.39（Ubuntu 24.04 及更新）。
+          - label: linux-x86_64
+            runner: ubuntu-24.04
+            bundles: deb,rpm,appimage
+          - label: linux-aarch64
+            runner: ubuntu-24.04-arm
+            bundles: deb,rpm,appimage
+          # macOS 固定用 15 而不是 26/latest：按 Apple 的 SDK 支持表，Xcode 16.x
+          # 是最后一档仍支持 macOS 10.13 deployment target 的（Xcode 27 起抬到
+          # 12.0），而 10.13 正是 tauri.conf.json 里 minimumSystemVersion 的取值。
+          - label: macos-aarch64
+            runner: macos-15
+            bundles: app,dmg
+          - label: macos-x86_64
+            runner: macos-15-intel
+            bundles: app,dmg
+    env:
+      # profile.release 已经 strip 过，再让 linuxdeploy 剥一次只会平添失败点
+      NO_STRIP: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      # libwebkit2gtk / gtk / appindicator / rsvg / xdo 是 Tauri 2 的常规依赖；
+      # libudev-dev + pkg-config 是 controller-core 依赖的 serialport 4 需要的。
+      - name: 安装 Linux 构建依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            file \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libudev-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            pkg-config
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Cargo 构建
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: TController
+          key: ${{ matrix.label }}
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: TController/app/ui-next/package-lock.json
+
+      # tauri.conf.json 的 beforeBuildCommand 会在 ui-next 里跑 `npm run build`，
+      # 所以前端依赖必须先装好。
+      - name: 安装前端依赖
+        working-directory: TController/app/ui-next
+        run: npm ci
+
+      - name: 安装 Tauri CLI
+        run: |
+          npm install -g @tauri-apps/cli@2.11.4
+          tauri --version
+
+      - name: 构建并打包
+        working-directory: TController/app
+        run: tauri build --bundles ${{ matrix.bundles }} -- --locked
+
+      - name: 收集 Linux 产物
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          bundle=TController/target/release/bundle
+          mkdir -p dist
+          cp "$bundle"/deb/*.deb dist/
+          cp "$bundle"/rpm/*.rpm dist/
+          cp "$bundle"/appimage/*.AppImage dist/
+
+          # Tauri 没有 tar.gz 目标。直接把 deb 的文件树解出来重新打包，
+          # 内容与 deb 完全一致，安装方式是 `sudo tar -xzf ... -C /`。
+          deb=$(ls "$bundle"/deb/*.deb)
+          stage=$(mktemp -d)
+          dpkg-deb -x "$deb" "$stage"
+          install -Dm644 LICENSE "$stage/usr/share/doc/tcontroller-app/LICENSE"
+          tar -czf "dist/$(basename "$deb" .deb).tar.gz" -C "$stage" .
+
+          ls -l dist
+
+      - name: 收集 macOS 产物
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          bundle=TController/target/release/bundle
+          mkdir -p dist
+          cp "$bundle"/dmg/*.dmg dist/
+
+          # .app 是目录，upload-artifact 会丢掉可执行位和符号链接，所以用
+          # ditto 打成 zip（保留权限与资源分叉），命名与 dmg 对齐
+          dmg=$(ls "$bundle"/dmg/*.dmg)
+          app=$(ls -d "$bundle"/macos/*.app)
+          ditto -c -k --sequesterRsrc --keepParent "$app" "dist/$(basename "$dmg" .dmg).app.zip"
+
+          ls -l dist
+
+      - name: 收集 Windows 产物
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = 'TController/target/release/bundle'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "$bundle/nsis/*-setup.exe" dist/
+          if (Test-Path "$bundle/msi") { Copy-Item "$bundle/msi/*.msi" dist/ }
+
+          # 便携版：沿用 NSIS 安装器的命名，只把 -setup.exe 换成 -portable.zip
+          $setup = Get-ChildItem "$bundle/nsis/*-setup.exe" | Select-Object -First 1
+          $base = $setup.Name -replace '-setup\.exe$', ''
+          $stage = Join-Path $env:RUNNER_TEMP $base
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'TController/target/release/tcontroller-app.exe' $stage
+          Copy-Item 'LICENSE' $stage
+          Compress-Archive -Path $stage -DestinationPath "dist/$base-portable.zip" -CompressionLevel Optimal
+
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: 上传上位机产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-tcontroller-${{ matrix.label }}
+          path: dist/*
+          if-no-files-found: error
+
+  # -------------------------------------------------------------- Release
+  release:
+    name: 发布 Release
+    if: startsWith(github.ref, 'refs/tags/RELEASE-')
+    # 任何一条腿失败都不发布，避免出现只有半个平台的 Release
+    needs: [firmware, tcontroller]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: 下载全部发布产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+
+      - name: 生成校验和
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          # 写到 dist 外面再挪回来：`> SHA256SUMS` 会在 find 枚举目录之前
+          # 就把文件建出来，否则它会把自己也算进去
+          find . -maxdepth 1 -type f -printf '%P\n' | sort \
+            | xargs -r sha256sum > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" .
+          cat SHA256SUMS
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          name: AutoTitrator ${{ github.ref_name }}
+          fail_on_unmatched_files: true

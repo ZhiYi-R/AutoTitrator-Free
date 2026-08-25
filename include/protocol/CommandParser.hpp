@@ -27,7 +27,7 @@ template <typename Handler>
 class CommandParser {
 public:
     /**
-     * @brief 喂入一个字节，推进状态机
+     * @brief 输入一个字节，推进状态机
      * @param b 输入字节
      */
     static void feed(uint8_t b) noexcept {

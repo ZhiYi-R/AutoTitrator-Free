@@ -67,7 +67,7 @@ public:
     static void service() noexcept {
         if (g_i2cBusy) {
             if (Platform::SysTick_::elapsed(g_i2cStartedAt) < I2C_TIMEOUT_MS) return;
-            /** 无论 HAL busy 是否仍置位，都强制退出设备侧 busy，避免失步卡死 */
+            /** 无论 HAL busy 是否仍置位，都强制退出设备侧 busy，避免失步停滞 */
             if (!HAL::I2C::abortAndRecover()) {
                 HAL::I2C::recoverBus();
             }

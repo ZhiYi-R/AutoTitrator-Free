@@ -1,0 +1,19 @@
+[package]
+name = "tcontroller-app"
+description = "AutoTitrator TController — Tauri 2 应用壳（前端占位）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+controller-core = { path = "../../crates/controller-core" }
+
+[features]
+# 占位：默认无自定义特性
+default = []

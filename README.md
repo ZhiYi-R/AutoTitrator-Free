@@ -1,6 +1,8 @@
 # AutoTitrator-Free
 
-多模态自动滴定控制器 —— STM32F103 裸机固件 + Python 上位机。
+[English](README_EN.md) | 中文
+
+多模态自动滴定控制器。STM32F103 裸机固件驱动进样与滴定双蠕动泵，采集电位与光谱信号；Rust/Tauri 上位机对两路信号做在线终点判定，并支持泵标定、浓度计算与数据记录。
 
 ## 项目概览
 
@@ -13,8 +15,19 @@
 | 语言标准 | C++23，裸机，无 HAL / 无 RTOS / 无堆 |
 | 构建系统 | SCons |
 | 调试器 | ST-Link V2 (SWD) |
-| 上位机 | Python 3.12+，ttkbootstrap + matplotlib |
+| 上位机 | Rust/Tauri 2 + Next.js |
 | 授权 | [PolyForm Shield 1.0.0](LICENSE) |
+
+## 文档
+
+| 文档 | 读者 | 内容 |
+|------|------|------|
+| [上位机使用手册](docs/host-user-guide.md) | 做实验的人 | 安装、连接、标定、滴定、导出、常见问题 |
+| [通信协议](docs/protocol.md) | 对接协议的人 | 帧格式、命令表、时序、重试 |
+| [固件二次开发指南](docs/firmware-dev-guide.md) | 固件开发者 | 代码布局、初始化、寄存器层、中断、协议扩展 |
+| [硬件接线](docs/hardware-wiring.md) | 组装样机的人 | 引脚分配、接线说明、供电 |
+| [标定与数据格式](docs/data-formats.md) | 处理数据的人 | calibre.npz 结构、sidecar、settings.json |
+| [算法技术报告](docs/algorithm-report.md) | 关注算法的开发者 | 多模态融合、终点判定、参数与验证 |
 
 ## 目录结构
 
@@ -35,22 +48,16 @@ AutoTitrator-Free
 │   ├── hal/                # 外设 HAL 驱动
 │   ├── device/             # 设备级驱动
 │   └── protocol/           # 通信协议栈
-├── TController/            # Python 上位机
-│   ├── src/
-│   │   ├── main.py         # GUI 入口
-│   │   ├── Communication/  # 串口通信与协议解析
-│   │   ├── DataProcessor/  # 终点检测、光谱重建、泵校准
-│   │   └── gui/            # ttkbootstrap UI 与 matplotlib 绘图
-│   ├── data/               # 校准数据
-│   └── scripts/            # 离线验证脚本
+├── TController/            # Rust/Tauri 上位机
+│   ├── crates/controller-core/ # 协议、检测、重建与工作流
+│   ├── app/src-tauri/      # Tauri 命令与后端状态
+│   ├── app/ui-next/        # Next.js 仪器工作台
+│   └── data/               # calibre.npz 与运行时状态
 ├── scripts/                # 代码生成脚本
 │   └── generate_stm32f103.py   # 从 CMSIS-SVD 生成外设头文件
-├── requirements.txt        # 上位机运行时依赖
-├── requirements-dev.txt    # 开发/构建依赖
+├── requirements-dev.txt    # 固件构建与寄存器生成依赖
 ├── openocd.cfg             # OpenOCD 调试配置
 ├── .gdbinit                # GDB 初始化脚本
-├── pyrightconfig.json      # Python 类型检查配置
-├── ruff.toml               # Python lint 配置
 ├── README.md
 └── LICENSE
 ```
@@ -143,60 +150,98 @@ scons -c
 
 ```sh
 # Terminal 1 — 启动 OpenOCD
-cd D:/Projects/AutoTitrator-Free
+cd D:/Projects/AutoTitrator/Firmware
 openocd -f openocd.cfg
 
 # Terminal 2 — 连接 GDB
 arm-none-eabi-gdb build/AutoTitrator-Firmware.elf -x .gdbinit
 ```
 
-### 上位机运行
+### 寄存器生成工具
 
-```sh
-uv pip install -r requirements.txt
-uv run python TController/src/main.py
-```
-
-开发依赖（含 SCons、ruff、pyright）使用：
+寄存器头文件生成脚本需要 `cmsis-svd`，开发依赖使用：
 
 ```sh
 uv pip install -r requirements-dev.txt
+uv run scripts/generate_stm32f103.py
 ```
 
 ## 上位机（TController）
 
-Python 上位机通过串口与 MCU 通信，提供：
+Rust/Tauri 上位机通过串口与 MCU 通信，提供：
 
 - 实时光谱曲线与电位曲线
 - 在线滴定终点检测
 - 双泵控制与进度显示
 - 泵校准与 pH 电极校准
-- 数据记录与 Excel 导出
+- 状态持久化、运行历史和可靠性诊断
 
 ### 主要模块
 
 | 目录 | 功能 |
 |------|------|
-| `TController/src/Communication/` | 串口后台线程、协议帧解析、事件队列 |
-| `TController/src/DataProcessor/` | 终点检测（EWMA + 自适应阈值 + AMPD）、光谱重建、泵校准 |
-| `TController/src/gui/` | ttkbootstrap 主窗口、绘图控件、校准/维护标签页 |
-| `TController/scripts/` | 离线验证与实时回放脚本 |
+| `TController/crates/controller-core/src/protocol/` | 串口线程、协议帧解析与重试 |
+| `TController/crates/controller-core/src/processing/` | 终点检测、光谱重建、泵校准 |
+| `TController/crates/controller-core/src/workflow.rs` | 滴定工作流与泵控状态机 |
+| `TController/app/src-tauri/` | 后端状态快照、命令和持久化 |
+| `TController/app/ui-next/` | Next.js 仪器工作台 |
 
 ### 技术栈
 
-| 组件 | 库 | 授权 |
-|------|-----|------|
-| UI 框架 | ttkbootstrap | MIT |
-| 绘图 | matplotlib（blit 加速） | PSF/BSD |
-| 数值计算 | numpy | BSD-3 |
-| 串口通信 | pyserial | BSD-3 |
-| 数据导出 | openpyxl | MIT |
+| 组件 | 技术 |
+|------|------|
+| UI 框架 | Tauri 2 + Next.js |
+| 状态管理 | Rust backend snapshot + Zustand 视图缓存 |
+| 数值计算 | Rust ndarray / ndarray-npy |
+| 串口通信 | Rust serialport |
 
-### 线程模型
+### 运行方式
 
-- 串口读取：`threading.Thread` + `queue.Queue`
-- GUI 轮询：`root.after()` 递归调度，约 80 ms 刷新绘图
-- 通信事件：`ProtocolHandler.poll()` 排空队列并分发回调
+```sh
+cd TController/app/src-tauri
+cargo tauri dev       # 自动启动 Next.js 开发服务器
+cargo tauri build     # 自动执行 Next.js 静态导出并打包 Tauri 应用
+```
+
+单独验证前端时，可在 `TController/app/ui-next` 下运行 `npm run build` 或 `npm run lint`。浏览器直接访问 Next 开发服务器时使用显式 mock adapter，真实 Tauri 环境始终以 Rust backend snapshot 为状态源。
+
+### 应用图标
+
+`TController/app/src-tauri/icons/` 下的 PNG 与 ICO 由 `scripts/gen_app_icons.mjs` 从同目录的 `icon.svg` 生成，产物已提交进仓库，CI 不会重新生成。换图标时改 `icon.svg` 后本地重跑：
+
+```sh
+cd TController/app/ui-next && npm ci   # 脚本复用前端的 sharp
+cd ../../.. && node scripts/gen_app_icons.mjs
+```
+
+`bundle.icon` 必须至少包含一个正方形 PNG：tauri-bundler 的 Linux 分支会跳过非 PNG 图标，而 AppImage 打包器在找不到正方形 PNG 时会直接 panic。macOS 不需要额外准备 `.icns`；列表里没有 `.icns` 时，打包器会把这些 PNG 合成为 ICNS。
+
+## 持续集成与发布
+
+`.github/workflows/build.yml` 在推送到任意分支、提交 PR、以及打 `RELEASE-*` 标签时运行，固件与上位机各平台并行构建（`fail-fast: false`，单一构建目标失败不影响其他目标）。
+
+| 构建目标 | Runner | 产物 |
+|----------|--------|------|
+| 固件 cortex-m3 | `ubuntu-24.04` | `.elf` `.hex`（`.map` `.lst` 另存为 CI 制品，不进 Release） |
+| 上位机 Windows x86_64 | `windows-latest` | `.msi` `-setup.exe` `-portable.zip` |
+| 上位机 Windows aarch64 | `windows-11-arm` | `-setup.exe` `-portable.zip` |
+| 上位机 Linux x86_64 | `ubuntu-24.04` | `.deb` `.rpm` `.tar.gz` `.AppImage` |
+| 上位机 Linux aarch64 | `ubuntu-24.04-arm` | `.deb` `.rpm` `.tar.gz` `.AppImage` |
+| 上位机 macOS aarch64 | `macos-15` | `.dmg` `.app.zip` |
+| 上位机 macOS x86_64 | `macos-15-intel` | `.dmg` `.app.zip` |
+
+六个上位机构建目标都跑在原生架构的 runner 上，不做交叉编译。Tauri 的 AppImage、MSI、DMG 打包器都无法跨架构工作。
+
+发布时推 `RELEASE-*` 标签：所有构建成功后，`release` job 汇总全部产物、生成 `SHA256SUMS` 并创建 GitHub Release。任一平台失败则不发布，避免出现只覆盖部分平台的 Release。
+
+已知约束：
+
+- **Windows aarch64 只出 NSIS**。WiX v3 的 arm64 支持没在 Windows on ARM 上验证过，Tauri 官方也只保证 NSIS 支持 ARM64。
+- **`.tar.gz` 由 CI 自己打**。Tauri 没有 tar.gz 目标，CI 把 `.deb` 的文件树解出来重新打包，内容与 deb 一致，安装方式是 `sudo tar -xzf TController_*.tar.gz -C /`（依赖需自行安装）。
+- **Linux 产物的 glibc 下限是 2.39**（Ubuntu 24.04 及更新）。选 24.04：22.04 镜像从 2026-09-17 起进入弃用期；若要支持更老的发行版需换回 22.04 或改用容器构建。
+- **macOS 下限压到 10.13 (High Sierra)**，由 `bundle.macOS.minimumSystemVersion` 设定，同时写入 `LSMinimumSystemVersion` 与 `MACOSX_DEPLOYMENT_TARGET`。这是当前工具链能压到的最低值：Apple 的 SDK 支持表里 Xcode 16.x 支持的 deployment target 是 macOS 10.13–15（Xcode 27 起抬到 12.0），Tauri 打包器的默认下限也是 10.13。所以 macOS 的两个构建目标都固定用 `macos-15`（Xcode 16.x），不用 `macos-latest`。
+  注意 Tauri 官方在 Prerequisites 页只声明支持 **macOS 10.15 (Catalina) 及以上**，10.13 / 10.14 属于工具链允许但上游未验证的区间。若实测在 10.13/10.14 起不来，把 `minimumSystemVersion` 改成 `"10.15"` 即可；Apple Silicon 机型本身最低就是 11.0，不受影响。
+- **macOS 产物未签名、未公证**。仓库没有配置 Apple 开发者证书，Tauri 只在设置了 `APPLE_CERTIFICATE` 时才签名。用户首次打开需右键「打开」，或执行 `xattr -dr com.apple.quarantine /Applications/TController.app`。要启用签名就给 workflow 加上 `APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` / `APPLE_SIGNING_IDENTITY` 等 secret。
 
 ## 注意事项
 

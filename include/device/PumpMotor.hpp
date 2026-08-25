@@ -108,7 +108,7 @@ public:
 
     /**
      * @brief 查询是否有进度上报待发送
-     * @return true=有待上报
+     * @return true=有进度待上报
      */
     static bool isReportPending() noexcept { return g_reportPending; }
 

@@ -125,7 +125,7 @@ public:
     }
 
     /**
-     * @brief 填入 TX 数据（覆盖式，调用前需确保 isTxIdle）
+     * @brief 填入 TX 数据（覆盖式，调用前 isTxIdle 须为真）
      * @param data 待发送数据
      * @param len 数据长度
      */

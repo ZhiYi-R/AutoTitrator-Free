@@ -1,8 +1,0 @@
-# TController 运行时依赖
-# Python >=3.12
-
-ttkbootstrap>=1.10,<2       # tkinter 现代主题 UI 库 (MIT)
-matplotlib>=3.8,<4          # 实时绘图 (spectrum/potential/calibration, blit 加速)
-numpy>=1.26,<3              # 数值计算与光谱重建
-openpyxl>=3.1,<4            # xlsx 数据导出
-pyserial>=3.5,<4            # 串口通信 (import serial)

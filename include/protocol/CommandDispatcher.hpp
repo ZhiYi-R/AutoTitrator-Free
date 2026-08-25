@@ -46,10 +46,10 @@ public:
     }
 
     /**
-     * @brief 主循环服务：从 SerialPort 读字节 → 喂入 Parser → 处理事件
+     * @brief 主循环服务：从 SerialPort 读字节 → 交给 Parser → 处理事件
      */
     static void service() noexcept {
-        /** 喂入 RX 字节 */
+        /** 输入 RX 字节 */
         uint8_t buf[16];
         size_t n = Device::SerialPort::read(buf, sizeof(buf));
         for (size_t i = 0; i < n; ++i) {
