@@ -1,8 +1,8 @@
-//! 临时差分测试：在真实滴定数据 A 上与 Python 实现逐帧数值比对。
+//! 一次性差分测试：在真实滴定数据上与 Python 实现逐帧数值比对。
 //!
-//! 前置：`tmp_diff/dump_python.py` 生成 `tmp_diff/dataA_python.json`
-//! （输入事件序列 + Python 逐帧特征 + 最终结果）。缺文件时跳过。
-//! 这是移植验证用的一次性测试，两实现数值一致后即可删除。
+//! 前置：需要仓库外的本地生成数据 `tmp_diff/dataA_python.json`
+//! （输入事件序列 + Python 逐帧特征 + 最终结果，由本地脚本生成，未提交进仓库）。
+//! 缺文件时跳过。这是移植验证用的一次性测试，两实现数值一致后即可删除。
 
 use controller_core::processing::endpoint::EndpointDetector;
 use serde_json::Value;
@@ -46,7 +46,7 @@ impl Report {
 #[test]
 fn matches_python_on_titration_data_a() {
     let Ok(text) = std::fs::read_to_string(JSON_PATH) else {
-        eprintln!("跳过：未找到 {JSON_PATH}（先运行 tmp_diff/dump_python.py）");
+        eprintln!("跳过：未找到 {JSON_PATH}（该数据由仓库外的本地脚本生成）");
         return;
     };
     let data: Value = serde_json::from_str(&text).expect("parse json");

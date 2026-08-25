@@ -27,6 +27,7 @@ A multimodal automatic titration controller. The STM32F103 bare-metal firmware d
 | [Firmware Development Guide](docs/firmware-dev-guide_EN.md) | firmware developers | code layout, initialization, register layer, interrupts, protocol extension |
 | [Hardware Wiring](docs/hardware-wiring_EN.md) | people assembling prototypes | pin assignments, wiring notes, power supply |
 | [Calibration and Data Formats](docs/data-formats_EN.md) | people working with data | calibre.npz structure, sidecar, settings.json |
+| [Algorithm Technical Report](docs/algorithm-report_EN.md) | developers interested in the algorithm | multimodal fusion, endpoint detection, parameters, verification |
 
 ## Directory layout
 

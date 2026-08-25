@@ -1,7 +1,7 @@
 //! 串口通信运行时：后台线程 + 事件通道（Python `_SerialReader` + `ProtocolHandler` 的移植）。
 //!
 //! 模型：调用方（未来的 Tauri 命令层）通过 `send`/`send_heartbeat`/`connect` 投递意图，
-//! 工作线程独占串口，执行读帧、ACK/NAK 重试、心跳，把 [`Event`] 推回通道，
+//! 工作线程独占串口，执行读帧、ACK/NAK 重试、心跳，把 [`Event`] 推送到通道，
 //! 由调用方周期 `poll()` 取走。
 
 use std::io::{Read as _, Write as _};

@@ -71,7 +71,7 @@ npm run build
 npm run lint
 ```
 
-Tests for `savgol`, `ampd`, `endpoint`, and others freeze the behavior of the Python reference implementation as assertions. When you change a numerical algorithm, look at these tests first. `tests/tmp_diff_python.rs` is a one-off differential test; run `tmp_diff/dump_python.py` first to generate the comparison data, and it skips automatically when the file is missing.
+Tests for `savgol`, `ampd`, `endpoint`, and others freeze the behavior of the Python reference implementation as assertions. When you change a numerical algorithm, look at these tests first. `tests/tmp_diff_python.rs` is a one-off differential test that needs a local, repo-external data file (`tmp_diff/dataA_python.json`) to run; it skips automatically when the file is missing.
 
 ## Two data sources: mock and real backend
 

@@ -39,9 +39,9 @@ TController/
 
 `tests/endpoint_reliability.rs` 保留了算法从 Python 移植时定下的行为约定：JS 散度对称有界、特征只用历史样本（因果）、重复体积帧保持速度电平、后发事件要强 1.5 倍才能顶替旧候选、舍入下界以下的散度不归一化、端点对变化时 KF 重新融合、AMPD 与稠密参照实现逐点一致。改动这些行为前先跑测试，改完测试会明确告诉你有哪里不一致。
 
-`tests/workflow.rs` 固化了一次实际发生过的 T=1 死锁回归：当双模态都确认但差距过大（conflict）时，只要电位证据在就必须放行 T=1；只有光谱、没有电位证据时不能控泵。场景见该文件顶部注释。
+`tests/workflow.rs` 防止一次实际发生过的 T=1 死锁回归：当双模态都确认但差距过大（conflict）时，我们取电位数据作为 T=1 的判据；只有光谱、没有电位证据时不控泵。场景见该文件顶部注释。
 
-AMPD 精修在记录太短（尾部峰没有大尺度覆盖）时返回 `None`，这是预期行为；savgol 边缘填充与参照算法的边缘半窗口行为一致。
+AMPD 微调在记录太短（尾部峰没有大尺度覆盖）时返回 `None`，这是预期行为；savgol 边缘填充与参照算法的边缘半窗口行为一致。
 
 ## 开发环境
 
@@ -71,7 +71,7 @@ npm run build
 npm run lint
 ```
 
-`savgol`、`ampd`、`endpoint` 等测试把 Python 参照实现的行为固化成断言，改数值算法时优先看这些测试是否还能过。`tests/tmp_diff_python.rs` 是一次性差分测试，需要先跑 `tmp_diff/dump_python.py` 生成对照数据，缺文件时自动跳过。
+`savgol`、`ampd`、`endpoint` 等测试把 Python 参照实现的行为写成断言，改数值算法时优先看这些测试是否还能过。`tests/tmp_diff_python.rs` 是一次性差分测试，需要仓库外的本地生成数据（`tmp_diff/dataA_python.json`）才能跑，缺文件时自动跳过。
 
 ## 双数据源：mock 与真实后端
 

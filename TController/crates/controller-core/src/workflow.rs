@@ -2,14 +2,14 @@
 //! `_run_detection` 泵控判据的后端化移植。
 //!
 //! 工作流：空闲 → [开始] 进样泵 MaxCount → 滴定泵 FreeRun → 终点 T=1
-//! → 继续 FreeRun 至 2×V_ep → T=2 停泵 + AMPD 精修 → 完成。
+//! → 继续 FreeRun 至 2×V_ep → T=2 停泵 + AMPD 微调 → 完成。
 //!
 //! T=1 的泵控判据是"报告的体积有电位证据支撑"，按 method 名白名单判定会
 //! 漏掉 conflict：consensus 已由 KF 融合双模态；potential_only 与 conflict
 //! 报告的都是电位终点（conflict 即"双模态都确认但未过 NIS 门控，退回电位"）。
 //! 只有 spectral_only 不能控泵；它没有电极证据。两模态持续不一致时
 //! T=1 永不触发，滴定死锁而泵无限运行
-//! （Python 版的实际回归，此处固化为测试 `conflict_with_potential_evidence_triggers_t1`）。
+//! （Python 版的实际回归，此处用测试 `conflict_with_potential_evidence_triggers_t1` 防止复发）。
 
 use serde::Serialize;
 
@@ -58,7 +58,7 @@ pub struct WorkflowOutcome {
     pub commands: Vec<PumpCommand>,
     /// T=1 首次报告的终点。
     pub first_endpoint: Option<f64>,
-    /// T=2/手动停止时 AMPD 精修后的终点。
+    /// T=2/手动停止时 AMPD 微调后的终点。
     pub refined_endpoint: Option<f64>,
     /// T=1 时 method 为 conflict（界面据此给出不同提示）。
     pub conflict_at_t1: bool,
@@ -210,7 +210,7 @@ impl WorkflowEngine {
         outcome
     }
 
-    /// 手动停止：停泵；已有 T=1 时用 AMPD 精修并收尾。
+    /// 手动停止：停泵；已有 T=1 时用 AMPD 微调并收尾。
     pub fn manual_stop(&mut self) -> WorkflowOutcome {
         let mut outcome = WorkflowOutcome {
             state: TitrationState::Done,

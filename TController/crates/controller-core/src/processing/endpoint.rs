@@ -5,7 +5,7 @@
 //! 使用未来样本。
 //!
 //! 任一模态的终点都可能事后修正（光谱端被更强激变顶替、电位端被 AMPD
-//! 精修）；所以观测对变化时 KF 从头重跑：用陈旧状态门控修正值只会拒绝修正。
+//! 微调）；所以观测对变化时 KF 从头重跑：用陈旧状态门控修正值只会拒绝修正。
 
 use serde::Serialize;
 
@@ -41,9 +41,8 @@ pub const SPEC_MIN_EVENT_VOL: f64 = 0.08;
 /// 后发激变须强过的倍数才能顶替终点。
 pub const SPEC_SUPERSEDE_RATIO: f64 = 1.5;
 
-/// AMPD 精修拒绝的尾部位置上限：最大尺度只覆盖窗口中部，尾部峰支持的尺度
-/// 很少；0.75 曾静默拒绝手动停止稍晚于等价点的合法终点，故守在无支撑尾部
-/// 之内。
+/// AMPD 微调拒绝的尾部位置上限：最大尺度只覆盖窗口中部，尾部峰支持的尺度
+/// 很少；0.75 曾在稍晚于化学计量点产生假阳性，故将门限放宽到 0.9。
 pub const AMPD_MAX_POSITION: f64 = 0.9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -617,7 +616,7 @@ impl EndpointDetector {
         if self.kf_consumed == Some(pair) {
             return;
         }
-        // 观测对变化（光谱顶替 / AMPD 精修）→ 重跑滤波器，
+        // 观测对变化（光谱顶替 / AMPD 微调）→ 重跑滤波器，
         // 避免用陈旧状态门控修正值。
         kf.reset();
         if let Some(pv) = pot_vol {
@@ -717,7 +716,7 @@ impl EndpointDetector {
         }
     }
 
-    /// 历史样本足够后用 AMPD 离线精修电位终点。
+    /// 历史样本足够后用 AMPD 离线微调电位终点。
     pub fn refine_with_ampd(&mut self) -> Option<f64> {
         if self.pot_raw_buf.len() < 20 {
             return None;

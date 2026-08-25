@@ -27,6 +27,7 @@
 | [固件二次开发指南](docs/firmware-dev-guide.md) | 固件开发者 | 代码布局、初始化、寄存器层、中断、协议扩展 |
 | [硬件接线](docs/hardware-wiring.md) | 组装样机的人 | 引脚分配、接线说明、供电 |
 | [标定与数据格式](docs/data-formats.md) | 处理数据的人 | calibre.npz 结构、sidecar、settings.json |
+| [算法技术报告](docs/algorithm-report.md) | 关注算法的开发者 | 多模态融合、终点判定、参数与验证 |
 
 ## 目录结构
 
