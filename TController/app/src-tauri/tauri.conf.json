@@ -48,6 +48,9 @@
       "deb": {
         "depends": ["libudev1"]
       }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.13"
     }
   }
 }

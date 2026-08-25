@@ -96,6 +96,15 @@ jobs:
           - label: linux-aarch64
             runner: ubuntu-24.04-arm
             bundles: deb,rpm,appimage
+          # macOS 固定用 15 而不是 26/latest：按 Apple 的 SDK 支持表，Xcode 16.x
+          # 是最后一档仍支持 macOS 10.13 deployment target 的（Xcode 27 起抬到
+          # 12.0），而 10.13 正是 tauri.conf.json 里 minimumSystemVersion 的取值。
+          - label: macos-aarch64
+            runner: macos-15
+            bundles: app,dmg
+          - label: macos-x86_64
+            runner: macos-15-intel
+            bundles: app,dmg
     env:
       # profile.release 已经 strip 过，再让 linuxdeploy 剥一次只会平添失败点
       NO_STRIP: "true"
@@ -169,6 +178,22 @@ jobs:
           dpkg-deb -x "$deb" "$stage"
           install -Dm644 LICENSE "$stage/usr/share/doc/tcontroller-app/LICENSE"
           tar -czf "dist/$(basename "$deb" .deb).tar.gz" -C "$stage" .
+
+          ls -l dist
+
+      - name: 收集 macOS 产物
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          bundle=TController/target/release/bundle
+          mkdir -p dist
+          cp "$bundle"/dmg/*.dmg dist/
+
+          # .app 是目录，upload-artifact 会丢掉可执行位和符号链接，所以用
+          # ditto 打成 zip（保留权限与资源分叉），命名与 dmg 对齐
+          dmg=$(ls "$bundle"/dmg/*.dmg)
+          app=$(ls -d "$bundle"/macos/*.app)
+          ditto -c -k --sequesterRsrc --keepParent "$app" "dist/$(basename "$dmg" .dmg).app.zip"
 
           ls -l dist
 
