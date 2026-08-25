@@ -1,5 +1,7 @@
 # AutoTitrator-Free
 
+[English](README_EN.md) | 中文
+
 多模态自动滴定控制器。STM32F103 裸机固件驱动进样与滴定双蠕动泵，采集电位与光谱信号；Rust/Tauri 上位机对两路信号做在线终点判定，并支持泵标定、浓度计算与数据记录。
 
 ## 项目概览
@@ -15,6 +17,16 @@
 | 调试器 | ST-Link V2 (SWD) |
 | 上位机 | Rust/Tauri 2 + Next.js |
 | 授权 | [PolyForm Shield 1.0.0](LICENSE) |
+
+## 文档
+
+| 文档 | 读者 | 内容 |
+|------|------|------|
+| [上位机使用手册](docs/host-user-guide.md) | 做实验的人 | 安装、连接、标定、滴定、导出、常见问题 |
+| [通信协议](docs/protocol.md) | 对接协议的人 | 帧格式、命令表、时序、重试 |
+| [固件二次开发指南](docs/firmware-dev-guide.md) | 固件开发者 | 代码布局、初始化、寄存器层、中断、协议扩展 |
+| [硬件接线](docs/hardware-wiring.md) | 组装样机的人 | 引脚分配、接线说明、供电 |
+| [标定与数据格式](docs/data-formats.md) | 处理数据的人 | calibre.npz 结构、sidecar、settings.json |
 
 ## 目录结构
 

@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ui-next 仪器工作台
 
-## Getting Started
+[English](README_EN.md) | 中文
 
-First, run the development server:
+AutoTitrator 上位机的前端部分，基于 Next.js。它展示滴定工作台、标定、维护、数据记录和设置五个页面，数据来源有两种：
+
+- Tauri 环境：订阅后端 `backend://state` 快照，通过 `invoke` 调用 Tauri 命令。
+- 浏览器直接访问：自动使用 `lib/mock/simulator.ts` 的模拟器，内置几种演示场景，方便不开硬件调试界面。
+
+切换逻辑在 `lib/backend.ts`。正式打包进 Tauri 时始终走真实后端，mock 只在浏览器开发模式出现。
+
+## 开发
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # 开发服务器（浏览器模式，自动启用 mock）
+npm run build      # 静态导出，供 Tauri 打包
+npm run lint
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 目录
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+lib/
+├── backend.ts        # Tauri/mock 双数据源桥接
+├── store.ts          # Zustand 全局状态
+├── i18n.ts           # 中英文案
+├── types.ts          # 前后端事件协议类型
+├── chart-utils.ts    # Canvas 图表公共工具
+├── tone.ts           # 语义色调映射
+└── mock/
+    ├── simulator.ts  # 内置模拟器
+    └── calibre.ts    # 泵标定镜像
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 约定
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- 界面文案全部走 `i18n.ts`，不要在组件里写死中文或英文。
+- 状态字段名与后端快照的 camelCase 字段一一对应，改协议先改 `types.ts`。
+- 页面布局见 `design.md`，改版式前先读它。
