@@ -2,16 +2,14 @@
 
 /**
  * 滴定工作台：主视图。
- * 左列双图表（电位-体积 / 光谱热图+最新光谱），右列终点结果与事件日志。
+ * 左列双图表（电位-体积 / 光谱热图+最新光谱），右列终点结果。
  */
-import { useMemo } from "react";
 import { Check, ChevronRight, CircleSlash, Droplets } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { useStore, confidenceTone, methodTone, reliabilityTone } from "@/lib/store";
+import { useStore, confidenceTone, methodTone, reliabilityTone, analyteConcentration } from "@/lib/store";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { toneClass } from "@/lib/tone";
@@ -98,15 +96,15 @@ function Stepper() {
 
 /* ---------------- 结果面板 ---------------- */
 
-function ResultBlock({ r }: { r: EndpointResult }) {
+function ResultBlock({ r, compact = false }: { r: EndpointResult; compact?: boolean }) {
   const t = useT();
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1">
       <div className="flex items-baseline justify-between">
         <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
           {r.stage === "t1" ? t("results.t1") : t("results.final")}
         </span>
-        <span className="readout text-lg font-semibold">
+        <span className={cn("readout font-semibold", compact ? "text-[13px]" : "text-lg")}>
           {r.volume.toFixed(3)} <span className="text-[11px] font-normal text-muted-foreground">mL</span>
         </span>
       </div>
@@ -115,7 +113,8 @@ function ResultBlock({ r }: { r: EndpointResult }) {
         <Badge variant="outline" className={toneClass[confidenceTone(r.confidence)]}>{t("results.confidence")}: {t(`confidence.${r.confidence}`)}</Badge>
         <Badge variant="outline" className={toneClass[reliabilityTone(r.reliability)]}>{r.reliability}</Badge>
       </div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-1 text-[11px]">
+      {!compact && (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 pt-0.5 text-[11px]">
         <span className="text-muted-foreground">{t("results.potVol")}</span>
         <span className="readout text-right">{r.potentialVolume?.toFixed(3) ?? "—"}</span>
         <span className="text-muted-foreground">{t("results.specVol")}</span>
@@ -134,8 +133,41 @@ function ResultBlock({ r }: { r: EndpointResult }) {
             <span className="readout text-right">{r.refined.toFixed(3)}</span>
           </>
         )}
-      </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/* 最终浓度：c分析物 = c滴定剂 · V终点 · (a/b) ÷ V样品 */
+function ConcBlock() {
+  const t = useT();
+  const final = useStore((s) => s.final);
+  const analysis = useStore((s) => s.analysis);
+  const sampleVolume = useStore((s) => s.sampleVolume);
+  if (!final) return null;
+  const c = analyteConcentration(analysis, final.volume, sampleVolume);
+  /* 计算式放入悬浮提示，原位显示浓度继承的终点置信度 */
+  const formula = `c = ${analysis.titrantConc} × ${final.volume.toFixed(3)} × (${analysis.analyteCoeff}/${analysis.titrantCoeff}) ÷ ${sampleVolume.toFixed(2)}`;
+  return (
+    <>
+      <Separator />
+      <div className="flex items-baseline justify-between" title={c === null ? undefined : formula}>
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{t("results.concentration")}</span>
+        {c === null ? (
+          <span className="text-[11px] text-muted-foreground">{t("results.concPending")}</span>
+        ) : (
+          <span className="flex items-baseline gap-2">
+            <Badge variant="outline" className={cn("text-[10px]", toneClass[confidenceTone(final.confidence)])}>
+              {t("results.confidence")}: {t(`confidence.${final.confidence}`)}
+            </Badge>
+            <span className="readout text-lg font-semibold">
+              {c < 0.01 ? `${Number((c * 1000).toPrecision(3))} mmol/L` : `${Number(c.toPrecision(4))} mol/L`}
+            </span>
+          </span>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -152,48 +184,13 @@ function ResultsPanel() {
           {t(`spectral.${spectralState}`)}
         </Badge>
       </CardHeader>
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-3">
-        {t1 ? <ResultBlock r={t1} /> : <p className="text-xs text-muted-foreground">{t("results.pending")}</p>}
+      {/* 结果是一屏读完的读数，不做卡内滚动；空间分配见右列 flex 比例 */}
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-3">
+        {t1 ? <ResultBlock r={t1} compact={Boolean(final)} /> : <p className="text-xs text-muted-foreground">{t("results.pending")}</p>}
         {t1 && final && <Separator />}
         {final && <ResultBlock r={final} />}
+        <ConcBlock />
       </CardContent>
-    </Card>
-  );
-}
-
-/* ---------------- 事件日志 ---------------- */
-
-const levelClass: Record<string, string> = {
-  info: "text-muted-foreground",
-  ok: "text-[var(--status-ok)]",
-  warn: "text-[var(--status-warn)]",
-  error: "text-[var(--status-danger)]",
-};
-
-function EventLog() {
-  const t = useT();
-  const logs = useStore((s) => s.logs);
-  const clearLogs = useStore((s) => s.clearLogs);
-  const items = useMemo(() => [...logs].reverse(), [logs]);
-  return (
-    <Card className="flex min-h-0 flex-1 flex-col">
-      <CardHeader className="flex-row items-center justify-between space-y-0 px-4 py-2.5">
-        <CardTitle className="text-[13px]">{t("log.title")}</CardTitle>
-        <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={clearLogs}>{t("log.clear")}</Button>
-      </CardHeader>
-      <ScrollArea className="min-h-0 flex-1 px-4 pb-3">
-        <div className="space-y-0.5 font-mono text-[11px] leading-relaxed">
-          {items.length === 0 && <p className="text-muted-foreground">—</p>}
-          {items.map((l, i) => (
-            <div key={i} className="flex gap-2">
-              <span className="shrink-0 text-muted-foreground/60">
-                {new Date(l.t).toLocaleTimeString("zh-CN", { hour12: false })}
-              </span>
-              <span className={levelClass[l.level]}>{l.text}</span>
-            </div>
-          ))}
-        </div>
-      </ScrollArea>
     </Card>
   );
 }
@@ -312,10 +309,9 @@ export function TitrationPage() {
           </Card>
         </div>
 
-        {/* 右：结果 + 日志 */}
+        {/* 右：结果面板（日志已移至维护页，此处独占整列） */}
         <div className="flex w-80 shrink-0 flex-col gap-3">
           <ResultsPanel />
-          <EventLog />
         </div>
       </div>
     </div>

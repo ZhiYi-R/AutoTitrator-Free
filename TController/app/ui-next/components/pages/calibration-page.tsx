@@ -95,8 +95,10 @@ function CalScatter({ points, fit, loadedSlope }: { points: CalPoint[]; fit: Fit
       ctx.font = "9px ui-monospace, monospace";
       ctx.fillStyle = cssVar("--muted-foreground");
       ctx.textAlign = "center";
-      for (const f of [0.25, 0.5, 0.75, 1]) ctx.fillText(String(Math.round(xMax * f)), xOf(xMax * f), H - 6);
+      for (const f of [0.25, 0.5, 0.75]) ctx.fillText(String(Math.round(xMax * f)), xOf(xMax * f), H - 6);
+      /* 末端刻度右对齐，避免文字越出画布右缘被裁掉 */
       ctx.textAlign = "right";
+      ctx.fillText(String(Math.round(xMax)), ml + pw, H - 6);
       for (const f of [0.5, 1]) ctx.fillText((yMax * f).toFixed(2), ml - 4, yOf(yMax * f) + 3);
 
       if (loadedK > 0) {
@@ -181,7 +183,7 @@ function PumpCalibration() {
   const measuredOk = Number.isFinite(measured) && measured > 0;
   const fit = useMemo(() => linfit(points), [points]);
   const canApply = session && fit !== null && points.length >= MIN_POINTS;
-  const cluster = "flex h-8 items-stretch overflow-hidden rounded-sm border bg-background";
+    const cluster = "flex h-8 items-stretch overflow-hidden rounded-sm border";
   const spin =
     "h-full w-[4.5rem] rounded-none border-0 bg-transparent px-1.5 py-0 text-center font-mono text-[12px] leading-8 shadow-none md:text-[12px] md:leading-8 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
   const clusterLabel =

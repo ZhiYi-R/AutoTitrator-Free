@@ -66,9 +66,11 @@ export function HistoryPage() {
 
       <Card className="flex min-h-0 flex-1 flex-col">
         {history.length === 0 ? (
-          <CardContent className="grid flex-1 place-items-center text-muted-foreground">
-            <HistoryIcon size={22} className="mb-2 opacity-40" />
-            <p className="text-xs">{t("history.empty")}</p>
+          <CardContent className="flex flex-1 items-center justify-center text-muted-foreground">
+            <div className="flex flex-col items-center gap-2">
+              <HistoryIcon size={22} className="opacity-40" />
+              <p className="text-xs">{t("history.empty")}</p>
+            </div>
           </CardContent>
         ) : (
           <ScrollArea className="min-h-0 flex-1">

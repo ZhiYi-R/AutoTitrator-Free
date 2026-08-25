@@ -107,7 +107,7 @@ function ParamRow({
     <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_10rem] items-center gap-6 border-b px-4 last:border-b-0">
       <span className="text-[13px] text-muted-foreground">{label}</span>
       {editing ? (
-        <span className="flex h-8 items-stretch overflow-hidden rounded-sm border bg-background ring-1 ring-foreground/20">
+        <span className="flex h-8 items-stretch overflow-hidden rounded-sm border ring-1 ring-foreground/20">
           <Input
             type="number"
             min={min}

@@ -29,6 +29,8 @@ const dict = {
   "toolbar.disconnected": { zh: "未连接", en: "Offline" },
   "toolbar.connecting": { zh: "连接中", en: "Linking" },
   "toolbar.sample": { zh: "样品体积", en: "Sample" },
+  "toolbar.titrantConc": { zh: "滴定剂浓度", en: "Titrant conc." },
+  "toolbar.stoich": { zh: "计量比 a∶b", en: "Stoich a∶b" },
   "toolbar.scenario": { zh: "场景", en: "Scenario" },
   "toolbar.speed": { zh: "速度", en: "Speed" },
   "toolbar.start": { zh: "开始滴定", en: "Start" },
@@ -94,6 +96,8 @@ const dict = {
   "results.kfStd": { zh: "标准差", en: "Std" },
   "results.kfNis": { zh: "NIS", en: "NIS" },
   "results.refined": { zh: "AMPD 精修", en: "AMPD refine" },
+  "results.concentration": { zh: "分析物浓度", en: "Analyte conc." },
+  "results.concPending": { zh: "设置滴定剂浓度后自动计算", en: "Set titrant conc. to compute" },
   "results.spectralState": { zh: "光谱状态", en: "Spectral state" },
 
   "method.consensus": { zh: "双模态共识", en: "Consensus" },

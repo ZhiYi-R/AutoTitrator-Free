@@ -428,14 +428,14 @@ export const backend = {
     useStore.setState(pump === 1
       ? { pump1Running: true, tx: useStore.getState().tx + 1 }
       : { pump2Running: true, tx: useStore.getState().tx + 1 });
-    useStore.getState().addLog("info", translate(lang, "log.pumpRun", { p: pump }));
+    useStore.getState().addLog("info", translate(lang, "log.pumpRun", { p: pump }), { pump });
   },
   freeStop(pump: 1 | 2) {
     const { lang } = useStore.getState();
     useStore.setState(pump === 1
       ? { pump1Running: false, tx: useStore.getState().tx + 1 }
       : { pump2Running: false, tx: useStore.getState().tx + 1 });
-    useStore.getState().addLog("info", translate(lang, "log.pumpStop", { p: pump }));
+    useStore.getState().addLog("info", translate(lang, "log.pumpStop", { p: pump }), { pump });
   },
   jog(pump: 1 | 2, steps: number) {
     const { connected, lang } = useStore.getState();
@@ -444,7 +444,7 @@ export const backend = {
     useStore.setState(pump === 1
       ? { pump1Steps: useStore.getState().pump1Steps + steps, tx: useStore.getState().tx + 1 }
       : { pump2Steps: useStore.getState().pump2Steps + steps, tx: useStore.getState().tx + 1 });
-    useStore.getState().addLog("ok", translate(lang, "log.pumpJog", { p: pump, n: steps, v: vol.toFixed(3) }));
+    useStore.getState().addLog("ok", translate(lang, "log.pumpJog", { p: pump, n: steps, v: vol.toFixed(3) }), { pump });
   },
 
   /** 从后端重新读出当前载入的泵标定（mock：回放 calibre 镜像）。 */

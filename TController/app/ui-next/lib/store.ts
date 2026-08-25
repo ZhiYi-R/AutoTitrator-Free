@@ -34,6 +34,25 @@ export const DEFAULT_DETECTION: DetectionParams = {
   consensusTol: 0.15,
 };
 
+/** 浓度计算参数：a·分析物 + b·滴定剂 → 产物，c分析物 = c滴定剂 · V终点 · (a/b) ÷ V样品 */
+export interface AnalysisParams {
+  titrantConc: number;  /* mol/L */
+  analyteCoeff: number; /* a */
+  titrantCoeff: number; /* b */
+}
+
+export const DEFAULT_ANALYSIS: AnalysisParams = {
+  titrantConc: 0.1,
+  analyteCoeff: 1,
+  titrantCoeff: 1,
+};
+
+/** 由终点体积（mL）与样品体积（mL）计算分析物浓度（mol/L）；参数非法时返回 null */
+export function analyteConcentration(p: AnalysisParams, endpointMl: number, sampleMl: number): number | null {
+  if (p.titrantConc <= 0 || p.analyteCoeff <= 0 || p.titrantCoeff <= 0 || sampleMl <= 0 || endpointMl <= 0) return null;
+  return (p.titrantConc * endpointMl * (p.analyteCoeff / p.titrantCoeff)) / sampleMl;
+}
+
 export type { CalPoint };
 
 export interface AppState {
@@ -78,6 +97,7 @@ export interface AppState {
   history: HistoryRun[];
   calPoints: CalPoint[];
   detection: DetectionParams;
+  analysis: AnalysisParams;
 
   setLang: (l: Lang) => void;
   setPage: (p: PageId) => void;
@@ -90,13 +110,14 @@ export interface AppState {
   setTubingPumps: (p1: boolean, p2: boolean) => void;
   setWatchdog: (on: boolean) => void;
   setDetection: (patch: Partial<DetectionParams>) => void;
+  setAnalysis: (patch: Partial<AnalysisParams>) => void;
   clearLogs: () => void;
-  addLog: (level: LogEntry["level"], text: string) => void;
+  addLog: (level: LogEntry["level"], text: string, opts?: { pump?: 1 | 2 }) => void;
   recordRun: (run: Omit<HistoryRun, "id" | "startedAt">) => void;
   resetRunData: () => void;
 }
 
-const initial: Omit<AppState, "setLang" | "setPage" | "toggleNav" | "setPort" | "setBaud" | "setSampleInput" | "setScenario" | "setSpeed" | "setTubingPumps" | "setWatchdog" | "setDetection" | "clearLogs" | "addLog" | "recordRun" | "resetRunData"> = {
+const initial: Omit<AppState, "setLang" | "setPage" | "toggleNav" | "setPort" | "setBaud" | "setSampleInput" | "setScenario" | "setSpeed" | "setTubingPumps" | "setWatchdog" | "setDetection" | "setAnalysis" | "clearLogs" | "addLog" | "recordRun" | "resetRunData"> = {
   lang: "zh",
   page: "titration",
   navCollapsed: false,
@@ -138,6 +159,7 @@ const initial: Omit<AppState, "setLang" | "setPage" | "toggleNav" | "setPort" | 
   history: [],
   calPoints: [],
   detection: { ...DEFAULT_DETECTION },
+  analysis: { ...DEFAULT_ANALYSIS },
 };
 
 function endpoint(raw: BackendSnapshot["t1"]): EndpointResult | null {
@@ -238,8 +260,19 @@ export const useStore = create<AppState>()((set, get) => ({
     set({ detection });
     void backend.setDetection(patch);
   },
+  /* 浓度计算只在上位机进行，参数不下发固件 */
+  setAnalysis: (patch) => {
+    set({ analysis: { ...get().analysis, ...patch } });
+  },
   clearLogs: () => set({ logs: [] }),
-  addLog: (level, text) => set({ logs: [...get().logs, { t: Date.now(), level, text }].slice(-400) }),
+  /* 仅泵手动操作入 store（维护页「动作记录」消费）；其余运行事件只进 console */
+  addLog: (level, text, opts) => {
+    if (opts?.pump) {
+      set({ logs: [...get().logs, { t: Date.now(), level, text }].slice(-400) });
+      return;
+    }
+    console.debug(`[autotitrator:${level}] ${text}`);
+  },
   recordRun: (run) => {
     const entry: HistoryRun = { ...run, id: Math.random().toString(36).slice(2, 9), startedAt: Date.now() };
     set({ history: [entry, ...get().history].slice(0, 30) });

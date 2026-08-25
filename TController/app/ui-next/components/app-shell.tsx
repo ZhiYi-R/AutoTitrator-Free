@@ -158,11 +158,14 @@ function ToolBar() {
     tubingOp,
     sampleInput,
     setSampleInput,
+    analysis,
+    setAnalysis,
   } = useStore();
 
   const running = ["injecting", "titrating", "degree1", "titrating2"].includes(workflow);
   const canStart = connected && !running && !tubingOp;
-  const cluster = "flex h-7 items-stretch overflow-hidden rounded-sm border bg-background";
+  /* 簇底透明：嵌在卡片色工具条上时不再形成深色内陷块，只靠发丝边框分组 */
+  const cluster = "flex h-7 items-stretch overflow-hidden rounded-sm border";
   const cell =
     "h-full rounded-none border-0 py-0 shadow-none font-mono text-[12px] leading-[26px] focus-visible:z-10 focus-visible:ring-2 [&_[data-slot=select-value]]:h-full [&_[data-slot=select-value]]:leading-[26px]";
 
@@ -234,6 +237,52 @@ function ToolBar() {
         />
         <span className="flex h-full items-center px-2 font-mono text-[12px] leading-[26px] text-muted-foreground">mL</span>
       </label>
+
+      <div className={cluster} role="group" aria-label={t("toolbar.titrantConc")}>
+        <span className="flex h-full items-center bg-muted/60 px-2 font-mono text-[12px] leading-[26px] text-muted-foreground whitespace-nowrap">
+          {t("toolbar.titrantConc")}
+        </span>
+        <Input
+          type="number"
+          min={0}
+          step={0.001}
+          value={analysis.titrantConc}
+          disabled={running}
+          onChange={(e) => setAnalysis({ titrantConc: Number(e.target.value) || 0 })}
+          className={cn(
+            cell,
+            "box-border h-full w-[68px] px-1.5 py-0 font-mono text-[12px] leading-[26px] md:text-[12px] md:leading-[26px]",
+            "[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none",
+            "text-right focus-visible:ring-0"
+          )}
+          aria-label={t("toolbar.titrantConc")}
+        />
+        <span className="flex h-full items-center px-1.5 font-mono text-[11px] leading-[26px] text-muted-foreground">mol/L</span>
+        <Separator orientation="vertical" />
+        <span className="flex h-full items-center px-2 font-mono text-[12px] leading-[26px] text-muted-foreground whitespace-nowrap">
+          {t("toolbar.stoich")}
+        </span>
+        {(["analyteCoeff", "titrantCoeff"] as const).map((field, i) => (
+          <span key={field} className="flex h-full items-center">
+            {i === 1 && <span className="px-0.5 font-mono text-[12px] text-muted-foreground">∶</span>}
+            <Input
+              type="number"
+              min={1}
+              step={1}
+              value={analysis[field]}
+              disabled={running}
+              onChange={(e) => setAnalysis({ [field]: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
+              className={cn(
+                cell,
+                "box-border h-full w-[36px] px-1 py-0 font-mono text-[12px] leading-[26px] md:text-[12px] md:leading-[26px]",
+                "[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none",
+                "text-center focus-visible:ring-0"
+              )}
+              aria-label={`${t("toolbar.stoich")} ${i === 0 ? "a" : "b"}`}
+            />
+          </span>
+        ))}
+      </div>
 
       <div className={cluster} role="group" aria-label={t("toolbar.start")}>
         <Button

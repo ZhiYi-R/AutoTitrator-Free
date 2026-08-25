@@ -124,7 +124,7 @@ async function initialize() {
 async function callMock(method: keyof (typeof import("@/lib/mock/simulator"))["backend"], ...args: unknown[]) {
   const mod = await mock();
   const fn = mod.backend[method] as (...values: unknown[]) => unknown;
-  return fn(...args);
+  return fn.apply(mod.backend, args);
 }
 
 export const backend = {

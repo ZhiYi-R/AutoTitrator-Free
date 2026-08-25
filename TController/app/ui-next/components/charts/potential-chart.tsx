@@ -109,10 +109,14 @@ export function PotentialChart() {
       ctx.fillText(fmt(e, 2), M.l - 6, y + 3);
     }
     ctx.textAlign = "left";
-    for (const d of thinTicks(niceTicks(0, dMax, 4), ph)) {
+    const dTicks = thinTicks(niceTicks(0, dMax, 4), ph);
+    /* 导数量程常小于 0.2，固定 1 位小数会让相邻刻度四舍五入成同一个数 */
+    const dStep = dTicks.length > 1 ? dTicks[1] - dTicks[0] : dMax;
+    const dDigits = dStep >= 1 ? 1 : Math.min(3, Math.ceil(-Math.log10(dStep)));
+    for (const d of dTicks) {
       if (d === 0) continue;
       ctx.fillStyle = text;
-      ctx.fillText(fmt(d, 1), M.l + pw + 6, yOfD(d) + 3);
+      ctx.fillText(fmt(d, dDigits), M.l + pw + 6, yOfD(d) + 3);
     }
     /* 轴框 */
     ctx.strokeStyle = gridStrong;
@@ -163,14 +167,22 @@ export function PotentialChart() {
       ctx.lineTo(x, M.t + ph);
       ctx.stroke();
       ctx.setLineDash([]);
+      /* 双标记（T1/EP 体积通常很近）：标签向各自外侧排，避免互相压盖 */
+      const label = `${mk.label} ${mk.v.toFixed(2)}`;
       ctx.fillStyle = accent;
-      ctx.textAlign = "center";
       ctx.font = "bold 10px ui-monospace, monospace";
-      ctx.fillText(
-        `${mk.label} ${mk.v.toFixed(2)}`,
-        Math.min(Math.max(x, M.l + 30), W - M.r - 30),
-        M.t + 10 + i * 12,
-      );
+      if (marks.length > 1) {
+        const tw = ctx.measureText(label).width;
+        const other = xOf(marks[1 - i].v);
+        const outward = x <= other ? "right" : "left";
+        const fitsOutward = outward === "right" ? x - 5 - tw >= M.l : x + 5 + tw <= M.l + pw;
+        const align = fitsOutward ? outward : outward === "right" ? "left" : "right";
+        ctx.textAlign = align;
+        ctx.fillText(label, align === "right" ? x - 5 : x + 5, M.t + 10);
+      } else {
+        ctx.textAlign = "center";
+        ctx.fillText(label, Math.min(Math.max(x, M.l + 30), W - M.r - 30), M.t + 10);
+      }
     });
 
     /* 十字线 */
