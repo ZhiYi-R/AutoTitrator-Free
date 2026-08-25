@@ -192,6 +192,39 @@ cargo tauri build     # 自动执行 Next.js 静态导出并打包 Tauri 应用
 
 单独验证前端时，可在 `TController/app/ui-next` 下运行 `npm run build` 或 `npm run lint`。浏览器直接访问 Next 开发服务器时使用显式 mock adapter，真实 Tauri 环境始终以 Rust backend snapshot 为状态源。
 
+### 应用图标
+
+`TController/app/src-tauri/icons/` 下的 PNG 与 ICO 由 `scripts/gen_app_icons.mjs` 从同目录的 `icon.svg` 生成，产物已提交进仓库，CI 不会重新生成。换图标时改 `icon.svg` 后本地重跑：
+
+```sh
+cd TController/app/ui-next && npm ci   # 脚本复用前端的 sharp
+cd ../../.. && node scripts/gen_app_icons.mjs
+```
+
+`bundle.icon` 必须至少包含一个正方形 PNG：tauri-bundler 的 Linux 分支会跳过非 PNG 图标，而 AppImage 打包器在找不到正方形 PNG 时会直接 panic。
+
+## 持续集成与发布
+
+`.github/workflows/build.yml` 在推送到 `master` / `main`、提交 PR、以及打 `RELEASE-*` 标签时运行，固件与上位机各平台并行构建（`fail-fast: false`，单条腿失败不影响其他腿）。
+
+| 构建目标 | Runner | 产物 |
+|----------|--------|------|
+| 固件 cortex-m3 | `ubuntu-24.04` | `.elf` `.hex`（`.map` `.lst` 另存为 CI 制品，不进 Release） |
+| 上位机 Windows x86_64 | `windows-latest` | `.msi` `-setup.exe` `-portable.zip` |
+| 上位机 Windows aarch64 | `windows-11-arm` | `-setup.exe` `-portable.zip` |
+| 上位机 Linux x86_64 | `ubuntu-24.04` | `.deb` `.rpm` `.tar.gz` `.AppImage` |
+| 上位机 Linux aarch64 | `ubuntu-24.04-arm` | `.deb` `.rpm` `.tar.gz` `.AppImage` |
+
+四条上位机的腿都跑在原生架构的 runner 上，不做交叉编译——Tauri 的 AppImage 与 MSI 打包器都无法跨架构工作。
+
+发布时推 `RELEASE-*` 标签：所有构建成功后，`release` job 汇总全部产物、生成 `SHA256SUMS` 并创建 GitHub Release。任一平台失败则不发布，避免出现只覆盖部分平台的 Release。
+
+几个需要知道的约束：
+
+- **Windows aarch64 只出 NSIS**。WiX v3 的 arm64 支持没在 Windows on ARM 上验证过，Tauri 官方也只保证 NSIS 支持 ARM64。
+- **`.tar.gz` 由 CI 自己打**。Tauri 没有 tar.gz 目标，CI 把 `.deb` 的文件树解出来重新打包，内容与 deb 一致，安装方式是 `sudo tar -xzf TController_*.tar.gz -C /`（依赖需自行安装）。
+- **Linux 产物的 glibc 下限是 2.39**（Ubuntu 24.04 及更新）。选 24.04 而非 22.04 是因为 22.04 镜像从 2026-09-17 起进入弃用期；若要支持更老的发行版需换回 22.04 或改用容器构建。
+
 ## 注意事项
 
 - **无 HAL / 无标准库**：所有外设寄存器通过自定义抽象层直接访问。

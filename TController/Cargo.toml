@@ -5,7 +5,9 @@ members = ["crates/controller-core", "app/src-tauri"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+# 仓库许可是 PolyForm Shield 1.0.0（见根目录 LICENSE），不是 MIT。
+# 这个字段会写进 rpm 的 License 标签，所以必须与 LICENSE 一致。
+license = "LicenseRef-PolyForm-Shield-1.0.0"
 
 [profile.release]
 lto = true
