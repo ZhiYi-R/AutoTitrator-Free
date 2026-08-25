@@ -205,7 +205,7 @@ cd ../../.. && node scripts/gen_app_icons.mjs
 
 ## 持续集成与发布
 
-`.github/workflows/build.yml` 在推送到 `master` / `main`、提交 PR、以及打 `RELEASE-*` 标签时运行，固件与上位机各平台并行构建（`fail-fast: false`，单条腿失败不影响其他腿）。
+`.github/workflows/build.yml` 在推送到任意分支、提交 PR、以及打 `RELEASE-*` 标签时运行，固件与上位机各平台并行构建（`fail-fast: false`，单条腿失败不影响其他腿）。
 
 | 构建目标 | Runner | 产物 |
 |----------|--------|------|
