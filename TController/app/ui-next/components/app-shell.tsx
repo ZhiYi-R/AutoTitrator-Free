@@ -169,7 +169,7 @@ function ToolBar() {
   return (
     <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-card px-2">
       <div className={cluster} role="group" aria-label={t("toolbar.connection")}>
-        <Select value={port || undefined} onValueChange={setPort} disabled={connected}>
+        <Select value={port} onValueChange={setPort} disabled={connected}>
           <SelectTrigger size="sm" className={cn(cell, "h-full w-[132px] px-2 data-[size=sm]:h-full [&_svg]:size-3")}>
             <SelectValue placeholder={ports.length ? t("toolbar.selectPort") : t("toolbar.noPorts")} />
           </SelectTrigger>

@@ -4,8 +4,14 @@
   "version": "0.1.0",
   "identifier": "com.autotitrator.tcontroller",
   "build": {
-    "beforeDevCommand": "npm --prefix ui-next run dev",
-    "beforeBuildCommand": "npm --prefix ui-next run build",
+    "beforeDevCommand": {
+      "script": "npm run dev",
+      "cwd": "../ui-next"
+    },
+    "beforeBuildCommand": {
+      "script": "npm run build",
+      "cwd": "../ui-next"
+    },
     "devUrl": "http://localhost:3000",
     "frontendDist": "../ui-next/out"
   },

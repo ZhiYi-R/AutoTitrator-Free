@@ -28,8 +28,16 @@ function Stepper() {
   const t = useT();
   const workflow = useStore((s) => s.workflow);
   const tubingOp = useStore((s) => s.tubingOp);
+  const sampleInput = useStore((s) => s.sampleInput);
+  const pump1Steps = useStore((s) => s.pump1Steps);
+  const pumpSlope = useStore((s) => s.pumpSlope);
+  const pumpIntercept = useStore((s) => s.pumpIntercept);
   const errIdx = workflow === "error" ? FLOW.indexOf("titrating") : -1;
   const activeIdx = workflow === "error" ? 1 : workflow === "idle" || tubingOp ? -1 : FLOW.indexOf(workflow);
+  const injectionVolume = pumpSlope > 0 ? Math.max(0, pump1Steps / pumpSlope + pumpIntercept) : null;
+  const injectionProgress = injectionVolume !== null && sampleInput > 0
+    ? Math.min(100, Math.max(0, (injectionVolume / sampleInput) * 100))
+    : null;
 
   return (
     <ol className="flex min-w-0 items-stretch overflow-hidden rounded-sm border bg-card">
@@ -37,23 +45,49 @@ function Stepper() {
         const done = activeIdx > i || workflow === "done";
         const active = activeIdx === i && workflow !== "done";
         const isErr = workflow === "error" && i === errIdx;
+        const injection = i === 0;
         return (
           <li
             key={s}
             className={cn(
-              "flex min-w-0 flex-1 items-center gap-1.5 border-r px-3 py-1.5 text-[11px] font-medium last:border-r-0",
+              "relative overflow-hidden",
+              injection
+                ? "flex min-w-0 flex-[1.35] flex-col justify-center gap-1 border-r px-3 py-1.5 text-[11px] font-medium last:border-r-0"
+                : "flex min-w-0 flex-1 items-center gap-1.5 border-r px-3 py-1.5 text-[11px] font-medium last:border-r-0",
               done && "bg-muted/70 text-foreground",
               active && "bg-foreground text-background",
               !done && !active && !isErr && "text-muted-foreground",
               isErr && "bg-[var(--status-danger)]/10 text-[var(--status-danger)]"
             )}
           >
-            <span className="font-mono text-[10px] opacity-60">{i + 1}</span>
-            {done && <Check size={11} />}
-            {isErr && <CircleSlash size={11} />}
-            <span className="truncate">{t(`state.${s}`)}</span>
-            {i < FLOW.length - 1 && (
-              <ChevronRight size={12} className="ml-auto hidden shrink-0 opacity-40 lg:block" />
+            {injection && injectionProgress !== null && (
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "absolute inset-y-0 left-0 transition-[width] duration-150",
+                  active ? "bg-white/20" : "bg-white/10"
+                )}
+                style={{ width: `${injectionProgress}%` }}
+              />
+            )}
+            <div className="relative z-10 flex min-w-0 items-center justify-between gap-1.5">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="font-mono text-[10px] opacity-60">{i + 1}</span>
+                {done && <Check size={11} />}
+                {isErr && <CircleSlash size={11} />}
+                <span className="truncate">{t(`state.${s}`)}</span>
+              </span>
+              {injection && injectionProgress !== null && (
+                <span className="readout shrink-0 text-[10px] tabular-nums opacity-75">{injectionProgress.toFixed(0)}%</span>
+              )}
+            </div>
+            {injection && (
+              <span className="relative z-10 readout text-[10px] tabular-nums opacity-70">
+                {injectionVolume === null ? "—" : `${injectionVolume.toFixed(2)} / ${sampleInput.toFixed(2)} mL`}
+              </span>
+            )}
+            {!injection && i < FLOW.length - 1 && (
+              <ChevronRight size={12} className="relative z-10 ml-auto hidden shrink-0 opacity-40 lg:block" />
             )}
           </li>
         );

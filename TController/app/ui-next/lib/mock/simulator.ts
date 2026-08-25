@@ -58,6 +58,7 @@ function log(level: "info" | "ok" | "warn" | "error", key: Parameters<typeof tra
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+let injectionTimer: ReturnType<typeof setInterval> | null = null;
 let phaseTimer: ReturnType<typeof setTimeout> | null = null;
 
 let cfg: ScenarioCfg = SCENARIOS.normal;
@@ -69,9 +70,10 @@ let runStartWall = 0;
 
 function clearTimers() {
   if (tickTimer) clearInterval(tickTimer);
+  if (injectionTimer) clearInterval(injectionTimer);
   if (phaseTimer) clearTimeout(phaseTimer);
   if (elapsedTimer) clearInterval(elapsedTimer);
-  tickTimer = phaseTimer = elapsedTimer = null;
+  tickTimer = injectionTimer = elapsedTimer = phaseTimer = null;
 }
 
 function speed() {
@@ -316,13 +318,31 @@ export const backend = {
     degree1Ticks = 0;
     runStartWall = Date.now();
     const sample = st.sampleInput;
-    useStore.setState({ workflow: "injecting", sampleVolume: sample, pump1Running: true });
+    const injectionDuration = 2600 / speed();
+    const injectionTargetSteps = pumpCal.slopeMlPerStep > 0
+      ? Math.max(0, Math.round((sample - pumpCal.intercept) / pumpCal.slopeMlPerStep))
+      : 0;
+    const injectionStarted = Date.now();
+    useStore.setState({ workflow: "injecting", sampleVolume: sample, pump1Running: true, pump1Steps: 0 });
+    injectionTimer = setInterval(() => {
+      const elapsed = Date.now() - injectionStarted;
+      const progress = Math.min(1, elapsed / injectionDuration);
+      useStore.setState({ pump1Steps: Math.round(injectionTargetSteps * progress) });
+      if (progress >= 1 && injectionTimer) {
+        clearInterval(injectionTimer);
+        injectionTimer = null;
+      }
+    }, 50);
     log("info", "log.inject", { v: sample.toFixed(1) });
     const { lang } = useStore.getState();
     toast.info(translate(lang, "toast.runStarted", { v: sample.toFixed(1) }));
 
     phaseTimer = setTimeout(() => {
-      useStore.setState({ workflow: "titrating", pump1Running: false, pump2Running: true });
+      if (injectionTimer) {
+        clearInterval(injectionTimer);
+        injectionTimer = null;
+      }
+      useStore.setState({ workflow: "titrating", pump1Running: false, pump1Steps: injectionTargetSteps, pump2Running: true });
       log("info", "log.injectDone");
       tickTimer = setInterval(titrationTick, BASE_TICK_MS / speed());
       elapsedTimer = setInterval(() => {
