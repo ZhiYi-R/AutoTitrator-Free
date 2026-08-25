@@ -2,14 +2,14 @@
 
 /// 数值下限（Python `_EPS`）。
 pub const EPS: f64 = 1e-12;
-/// JS 实测舍入地板（Python `_JS_FLOOR`）：
-/// float64 上真实 8 通道帧的 JS 舍入底约 5e-17，平台期约 2e-12，终点事件约 2e-7。
-/// js_speed 除以体积步长平方（约 4e7 倍放大），低于此地板的 JS 绝不能归一化。
+/// JS 实测舍入下界（Python `_JS_FLOOR`）：
+/// float64 上真实 8 通道帧的 JS 舍入下界约 5e-17，平台期约 2e-12，终点事件约 2e-7。
+/// js_speed 除以体积步长平方（约 4e7 倍放大），低于此下界的 JS 绝不能归一化。
 pub const JS_FLOOR: f64 = 1e-14;
 
 /// NumPy `np.sum` 的成对求和逐位复刻（loops_utils.h `pairwise_sum`）：
 /// n<8 顺序累加；n≤128 用 8 累加器树；更大者对半递归。
-/// 与 NumPy 的求和舍入完全一致，是双实现数值对齐的前提。
+/// 与 NumPy 的求和舍入完全一致，是两实现数值一致的前提。
 pub fn np_sum(a: &[f64]) -> f64 {
     const PW_BLOCKSIZE: usize = 128;
     let n = a.len();
@@ -102,10 +102,10 @@ pub fn cross_entropy(p: &[f64], q: &[f64]) -> f64 {
     -np_sum(&part)
 }
 
-/// 去自身地板的交叉熵 = KL(p‖q)：恒等分布为 0，可与退出阈值比较。
+/// 去自身下界的交叉熵 = KL(p‖q)：恒等分布为 0，可与退出阈值比较。
 ///
-/// `cross_entropy(p,p)` 是 p 的熵（~ln n）而非 0，直接驱动状态机会永远出不去
-/// IN_CHANGE；减去地板后才是可用的 KL。
+/// `cross_entropy(p,p)` 是 p 的熵（~ln n），不是 0，直接驱动状态机会永远出不去
+/// IN_CHANGE；减去下界后才是可用的 KL。
 pub fn cross_entropy_excess(p: &[f64], q: &[f64]) -> f64 {
     let p = normalize_spectrum(p).expect("cross_entropy_excess: invalid p");
     let q = normalize_spectrum(q).expect("cross_entropy_excess: invalid q");

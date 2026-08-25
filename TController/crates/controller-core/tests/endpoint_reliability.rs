@@ -1,4 +1,4 @@
-//! Python `tests/test_endpoint_reliability.py` 的移植 — 行为对齐契约。
+//! Python `tests/test_endpoint_reliability.py` 的移植 — 行为约定。
 
 use controller_core::processing::divergence::js_divergence;
 use controller_core::processing::endpoint::{Confidence, EndpointDetector, Method, PotentialState};
@@ -187,8 +187,8 @@ fn detector_reset_retains_spectrum_configuration() {
         .is_finite());
 }
 
-/// 生产路径复现：多帧光谱共享同一泵体积。速度滤波必须*保持*电平而不是
-/// 喂零——喂零会把活跃激变拖到退出阈值以下，伪造一次恢复。
+/// 生产路径复现：多帧光谱共享同一泵体积。速度滤波必须*保持*电平，
+/// 输入零值会把活跃激变拖到退出阈值以下，伪造一次恢复。
 #[test]
 fn repeated_volume_holds_speed_instead_of_injecting_zero() {
     let mut tracker = SpectralFeatureTracker::with_params(
@@ -252,7 +252,7 @@ fn supersede_ratio_suppresses_a_near_tie() {
     assert_eq!(outcomes[1].event_count, 2);
 }
 
-/// js_speed 除以 ~1e-8，舍入地板量级的散度必须保持 0（放大的不能是算术噪声）。
+/// js_speed 除以 ~1e-8，舍入下界量级的散度必须保持 0（放大的不能是算术噪声）。
 #[test]
 fn round_off_scale_divergence_is_not_normalised() {
     let mut tracker = SpectralFeatureTracker::new();

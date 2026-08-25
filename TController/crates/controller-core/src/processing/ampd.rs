@@ -28,7 +28,7 @@ pub fn ampd_peak_idx(signal: &[f64]) -> Option<usize> {
         .map(|(idx, _)| idx)?;
 
     let mut score = vec![0i64; n];
-    // Python: for k in range(sigma + 1, L + 1) —— sigma 是 0 基 gamma 索引，
+    // Python: for k in range(sigma + 1, L + 1)；sigma 是 0 基 gamma 索引，
     // 故实际起始尺度 k = sigma + 1。
     for k in (sigma + 1)..=l {
         for i in k..n - k {

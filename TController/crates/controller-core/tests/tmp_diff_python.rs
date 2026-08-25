@@ -2,7 +2,7 @@
 //!
 //! 前置：`tmp_diff/dump_python.py` 生成 `tmp_diff/dataA_python.json`
 //! （输入事件序列 + Python 逐帧特征 + 最终结果）。缺文件时跳过。
-//! 这是移植验证用的一次性测试，数值对齐后可删除。
+//! 这是移植验证用的一次性测试，两实现数值一致后即可删除。
 
 use controller_core::processing::endpoint::EndpointDetector;
 use serde_json::Value;

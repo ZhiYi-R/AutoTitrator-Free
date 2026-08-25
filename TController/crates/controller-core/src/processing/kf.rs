@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn reset_lets_a_revised_endpoint_pair_refuse() {
         // 复刻 Paper/ExpData 回归：被顶替的光谱终点必须能重新融合，
-        // 而不是被去重 token 挡住。
+        // 去重 token 不能挡住修正后的终点。
         let mut kf = EndpointFusionKf::with_params(0.01, 0.01, 0.08, 0.004, 0.02, DEFAULT_NIS_GATE);
         kf.observe(ObservationKind::Potential, 2.1475, Some("potential@2.1475"));
         let stale = kf.observe(ObservationKind::Spectral, 1.1805, Some("spectral@1.1805"));

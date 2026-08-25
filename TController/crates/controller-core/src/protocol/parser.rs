@@ -11,7 +11,7 @@ enum State {
     Checksum,
 }
 
-/// 逐字节喂入，吐出 `(类型, 载荷)`；与 Python `_UplinkParser` 逐位一致。
+/// 逐字节输入，输出 `(类型, 载荷)`；与 Python `_UplinkParser` 逐位一致。
 #[derive(Debug)]
 pub struct UplinkParser {
     state: State,
@@ -43,7 +43,7 @@ impl UplinkParser {
         *self = Self::new();
     }
 
-    /// 喂入一段字节流，把本批次解析出的帧追加到 `out`。
+    /// 输入一段字节流，把本批次解析出的帧追加到 `out`。
     pub fn feed(&mut self, bytes: &[u8], out: &mut Vec<(u8, Vec<u8>)>) {
         for &b in bytes {
             if let Some(frame) = self.feed_byte(b) {
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn drops_frame_with_bad_crc_and_recovers() {
-        // 心跳帧载荷长度须为 4，否则坏帧会吞掉后续字节
+        // 心跳帧载荷长度须为 4，否则坏帧会占用后续字节
         let payload = vec![0x05, 0x00, 0x00, 0x00];
         let mut frame = vec![0xAA, 0x55, 0x40];
         frame.extend_from_slice(&payload);

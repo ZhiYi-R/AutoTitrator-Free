@@ -345,7 +345,7 @@ public:
     static bool isError() noexcept { return g_error; }
 
     /**
-     * @brief 取消卡住的异步传输并恢复总线
+     * @brief 中止停滞的异步传输并恢复总线
      */
     static bool abortAndRecover() noexcept {
         uint32_t primask = disableIrqSave();

@@ -4,11 +4,11 @@
 //! 工作流：空闲 → [开始] 进样泵 MaxCount → 滴定泵 FreeRun → 终点 T=1
 //! → 继续 FreeRun 至 2×V_ep → T=2 停泵 + AMPD 精修 → 完成。
 //!
-//! T=1 的泵控判据是"报告的体积有电位证据支撑"，而不是枚举 method 名字：
-//! consensus 已由 KF 融合双模态；potential_only 与 conflict 报告的都是电位
-//! 终点（conflict 即"双模态都确认但未过 NIS 门控，退回电位"）。只有
-//! spectral_only 不能控泵——它没有电极证据。若按 method 名白名单就会漏掉
-//! conflict：两模态持续不一致时 T=1 永不触发，滴定死锁而泵无限运行
+//! T=1 的泵控判据是"报告的体积有电位证据支撑"，按 method 名白名单判定会
+//! 漏掉 conflict：consensus 已由 KF 融合双模态；potential_only 与 conflict
+//! 报告的都是电位终点（conflict 即"双模态都确认但未过 NIS 门控，退回电位"）。
+//! 只有 spectral_only 不能控泵；它没有电极证据。两模态持续不一致时
+//! T=1 永不触发，滴定死锁而泵无限运行
 //! （Python 版的实际回归，此处固化为测试 `conflict_with_potential_evidence_triggers_t1`）。
 
 use serde::Serialize;

@@ -199,7 +199,7 @@ const dict = {
   "settings.detectionSub": { zh: "与 controller-core 默认值一致；正式版提供修改入口", en: "Mirrors controller-core defaults" },
   "settings.about": { zh: "关于", en: "About" },
   "settings.version": { zh: "上位机版本", en: "Host version" },
-  "settings.core": { zh: "后端核心", en: "Backend core" },
+  "settings.core": { zh: "后端版本", en: "Backend core" },
   "settings.license": { zh: "许可证", en: "License" },
 
   "toast.connected": { zh: "已连接到 {port}", en: "Connected to {port}" },

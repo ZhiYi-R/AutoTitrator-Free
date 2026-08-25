@@ -4,8 +4,8 @@
 //! （有界 JS 信号、因果交叉曲率、终点/延迟两状态 KF 融合）。任何特征都不
 //! 使用未来样本。
 //!
-//! 任一模态的终点都可能事后修正——光谱端被更强激变顶替、电位端被 AMPD
-//! 精修——所以观测对变化时 KF 从头重跑：用陈旧状态门控修正值只会拒绝修正。
+//! 任一模态的终点都可能事后修正（光谱端被更强激变顶替、电位端被 AMPD
+//! 精修）；所以观测对变化时 KF 从头重跑：用陈旧状态门控修正值只会拒绝修正。
 
 use serde::Serialize;
 
@@ -366,7 +366,7 @@ impl EndpointDetector {
     //  数据输入
     // ================================================================
 
-    /// 喂入一个电位点：体积 mL、时间 s、电压 V。
+    /// 输入一个电位点：体积 mL、时间 s、电压 V。
     pub fn feed_potential(&mut self, vol: f64, t: f64, v: f64) {
         let vol = vol;
         let t = t;
@@ -437,7 +437,7 @@ impl EndpointDetector {
         }
     }
 
-    /// 喂入一帧原始通道或重建全谱。
+    /// 输入一帧原始通道或重建全谱。
     pub fn feed_spectrum(&mut self, vol: f64, spectrum: &[f64]) {
         let diag = self.spectral.update(vol, spectrum);
         self.last_spec_diag = diag;
@@ -684,7 +684,7 @@ impl EndpointDetector {
                         confidence: Confidence::Low,
                         method: Method::Conflict,
                         warning: Some(format!(
-                            "电位{:.3}mL vs 光谱{:.3}mL 未通过创新一致性门控",
+                            "电位{:.3}mL vs 光谱{:.3}mL 未通过新息一致性门控",
                             pot.volume, spec.volume
                         )),
                         potential: Some(pot),

@@ -1,4 +1,4 @@
-//! controller-core — TController 上位机后端核心的 Rust 移植。
+//! controller-core — TController 上位机后端逻辑的 Rust 移植。
 //!
 //! 该 crate 保留了从旧 Python 上位机移植时建立的模块边界：
 //!

@@ -1,6 +1,6 @@
 # AutoTitrator-Free
 
-多模态自动滴定控制器 —— STM32F103 裸机固件 + Rust/Tauri 上位机。
+多模态自动滴定控制器。STM32F103 裸机固件驱动进样与滴定双蠕动泵，采集电位与光谱信号；Rust/Tauri 上位机对两路信号做在线终点判定，并支持泵标定、浓度计算与数据记录。
 
 ## 项目概览
 
@@ -201,11 +201,11 @@ cd TController/app/ui-next && npm ci   # 脚本复用前端的 sharp
 cd ../../.. && node scripts/gen_app_icons.mjs
 ```
 
-`bundle.icon` 必须至少包含一个正方形 PNG：tauri-bundler 的 Linux 分支会跳过非 PNG 图标，而 AppImage 打包器在找不到正方形 PNG 时会直接 panic。macOS 不需要额外准备 `.icns`——列表里没有 `.icns` 时，打包器会把这些 PNG 打成 ICNS。
+`bundle.icon` 必须至少包含一个正方形 PNG：tauri-bundler 的 Linux 分支会跳过非 PNG 图标，而 AppImage 打包器在找不到正方形 PNG 时会直接 panic。macOS 不需要额外准备 `.icns`；列表里没有 `.icns` 时，打包器会把这些 PNG 合成为 ICNS。
 
 ## 持续集成与发布
 
-`.github/workflows/build.yml` 在推送到任意分支、提交 PR、以及打 `RELEASE-*` 标签时运行，固件与上位机各平台并行构建（`fail-fast: false`，单条腿失败不影响其他腿）。
+`.github/workflows/build.yml` 在推送到任意分支、提交 PR、以及打 `RELEASE-*` 标签时运行，固件与上位机各平台并行构建（`fail-fast: false`，单一构建目标失败不影响其他目标）。
 
 | 构建目标 | Runner | 产物 |
 |----------|--------|------|
@@ -217,17 +217,17 @@ cd ../../.. && node scripts/gen_app_icons.mjs
 | 上位机 macOS aarch64 | `macos-15` | `.dmg` `.app.zip` |
 | 上位机 macOS x86_64 | `macos-15-intel` | `.dmg` `.app.zip` |
 
-六条上位机的腿都跑在原生架构的 runner 上，不做交叉编译——Tauri 的 AppImage、MSI、DMG 打包器都无法跨架构工作。
+六个上位机构建目标都跑在原生架构的 runner 上，不做交叉编译。Tauri 的 AppImage、MSI、DMG 打包器都无法跨架构工作。
 
 发布时推 `RELEASE-*` 标签：所有构建成功后，`release` job 汇总全部产物、生成 `SHA256SUMS` 并创建 GitHub Release。任一平台失败则不发布，避免出现只覆盖部分平台的 Release。
 
-几个需要知道的约束：
+已知约束：
 
 - **Windows aarch64 只出 NSIS**。WiX v3 的 arm64 支持没在 Windows on ARM 上验证过，Tauri 官方也只保证 NSIS 支持 ARM64。
 - **`.tar.gz` 由 CI 自己打**。Tauri 没有 tar.gz 目标，CI 把 `.deb` 的文件树解出来重新打包，内容与 deb 一致，安装方式是 `sudo tar -xzf TController_*.tar.gz -C /`（依赖需自行安装）。
-- **Linux 产物的 glibc 下限是 2.39**（Ubuntu 24.04 及更新）。选 24.04 而非 22.04 是因为 22.04 镜像从 2026-09-17 起进入弃用期；若要支持更老的发行版需换回 22.04 或改用容器构建。
-- **macOS 下限压到 10.13 (High Sierra)**，由 `bundle.macOS.minimumSystemVersion` 设定，同时写入 `LSMinimumSystemVersion` 与 `MACOSX_DEPLOYMENT_TARGET`。这是当前工具链能压到的最低值：Apple 的 SDK 支持表里 Xcode 16.x 支持的 deployment target 是 macOS 10.13–15（Xcode 27 起抬到 12.0），Tauri 打包器的默认下限也是 10.13。所以 macOS 两条腿都固定用 `macos-15`（Xcode 16.x），不用 `macos-latest`。
-  注意 Tauri 官方在 Prerequisites 页只声明支持 **macOS 10.15 (Catalina) 及以上**，10.13 / 10.14 属于工具链允许但上游未验证的区间。若实测在 10.13/10.14 起不来，把 `minimumSystemVersion` 改成 `"10.15"` 即可——Apple Silicon 机型本身最低就是 11.0，不受影响。
+- **Linux 产物的 glibc 下限是 2.39**（Ubuntu 24.04 及更新）。选 24.04：22.04 镜像从 2026-09-17 起进入弃用期；若要支持更老的发行版需换回 22.04 或改用容器构建。
+- **macOS 下限压到 10.13 (High Sierra)**，由 `bundle.macOS.minimumSystemVersion` 设定，同时写入 `LSMinimumSystemVersion` 与 `MACOSX_DEPLOYMENT_TARGET`。这是当前工具链能压到的最低值：Apple 的 SDK 支持表里 Xcode 16.x 支持的 deployment target 是 macOS 10.13–15（Xcode 27 起抬到 12.0），Tauri 打包器的默认下限也是 10.13。所以 macOS 的两个构建目标都固定用 `macos-15`（Xcode 16.x），不用 `macos-latest`。
+  注意 Tauri 官方在 Prerequisites 页只声明支持 **macOS 10.15 (Catalina) 及以上**，10.13 / 10.14 属于工具链允许但上游未验证的区间。若实测在 10.13/10.14 起不来，把 `minimumSystemVersion` 改成 `"10.15"` 即可；Apple Silicon 机型本身最低就是 11.0，不受影响。
 - **macOS 产物未签名、未公证**。仓库没有配置 Apple 开发者证书，Tauri 只在设置了 `APPLE_CERTIFICATE` 时才签名。用户首次打开需右键「打开」，或执行 `xattr -dr com.apple.quarantine /Applications/TController.app`。要启用签名就给 workflow 加上 `APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` / `APPLE_SIGNING_IDENTITY` 等 secret。
 
 ## 注意事项

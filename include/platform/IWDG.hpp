@@ -2,7 +2,7 @@
  * @file    IWDG.hpp
  * @brief   独立看门狗驱动（LSI ~40kHz，超时 ~5s）
  *
- * IWDG 一旦使能无法关闭，只能在复位前持续喂狗。
+ * IWDG 一旦使能无法关闭；只能周期性喂狗，直到复位。
  * 超时计算：T = (RLR + 1) × prescaler / 40000
  *   prescaler=64（PR=4），RLR=3124 → T = 3125 × 64 / 40000 = 5.0s
  */

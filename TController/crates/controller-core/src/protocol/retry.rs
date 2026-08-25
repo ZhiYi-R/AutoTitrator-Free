@@ -18,7 +18,7 @@ pub const ABORT_ERROR: &str = "下位机通讯异常";
 pub enum AckOutcome {
     /// ACK 匹配当前 pending 命令，已清除。
     Cleared,
-    /// 收到不匹配的 ACK 且仍有 pending —— 状态可能不同步，应上报错误。
+    /// 收到不匹配的 ACK 且仍有 pending；状态可能不同步，应上报错误。
     Unexpected { received: u8, expected: u8 },
     /// 无 pending 时收到的 ACK，忽略（可能是重复响应）。
     Ignored,

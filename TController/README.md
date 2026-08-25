@@ -7,7 +7,7 @@ Rust `controller-core` 后端 + Tauri 2 应用壳 + Next.js 仪器工作台。�
 ```
 TController/
 ├── Cargo.toml                 # workspace
-├── crates/controller-core/    # 后端核心（纯逻辑 + 串口 I/O 线程）
+├── crates/controller-core/    # 后端逻辑（纯逻辑 + 串口 I/O 线程）
 │   ├── src/protocol/          # 串口协议、解析与重试
 │   │   ├── crc.rs             #   CRC-8 (poly 0x31)
 │   │   ├── frames.rs          #   上/下行帧编解码（含 ADC shift 语义）
@@ -16,28 +16,28 @@ TController/
 │   │   └── handler.rs         #   串口工作线程 + Event 通道（poll 模型）
 │   ├── src/processing/        # 检测、重建与泵校准
 │   │   ├── ewma.rs savgol.rs ampd.rs
-│   │   ├── divergence.rs      #   JS / 交叉熵 / KL（含舍入地板 1e-14）
+│   │   ├── divergence.rs      #   JS / 交叉熵 / KL（含舍入下界 1e-14）
 │   │   ├── tracker.rs         #   SpectralFeatureTracker
 │   │   ├── kf.rs              #   EndpointFusionKF
 │   │   ├── endpoint.rs        #   EndpointDetector
 │   │   ├── reconstructor.rs   #   calibre.npz 矩阵 → 380–1100nm 全光谱
 │   │   └── calibration.rs     #   泵线性标定（slope/intercept）
 │   ├── src/workflow.rs        # 滴定工作流与泵控逻辑
-│   └── tests/                 # 行为契约与回归测试
+│   └── tests/                 # 行为约定与回归测试
 └── app/                       # Tauri 2 应用
     ├── src-tauri/             #   后端命令与 backend://state 快照
     └── ui-next/               #   Next.js 仪器工作台
 ```
 
-## 行为契约
+## 行为约定
 
-`tests/endpoint_reliability.rs` 保留算法移植时建立的行为契约
-（JS 对称有界、特征因果性、重复体积 hold、顶替滞回、舍入地板、KF 重置、
+`tests/endpoint_reliability.rs` 保留算法移植时建立的行为约定
+（JS 对称有界、特征因果性、重复体积 hold、顶替滞回、舍入下界、KF 重置、
 AMPD 对照稠密 oracle 等）；`protocol/` 内嵌测试覆盖协议边界；
 `tests/workflow.rs` 固化了曾实际发生的 **T=1 死锁回归**
 （conflict + 电位证据必须放行 T=1，spectral_only 不得控泵）。
 
-AMPD 精修在短记录（大尺度不覆盖尾部峰）时返回 `None`；savgol edge 填充使用与原始算法一致的边缘半窗口行为。
+AMPD 精修在短记录（大尺度不覆盖尾部峰）时返回 `None`；savgol 边缘填充与原始算法的边缘半窗口行为一致。
 
 ## 使用
 

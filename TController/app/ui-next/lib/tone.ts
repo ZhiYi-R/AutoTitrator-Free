@@ -1,5 +1,5 @@
 /**
- * 语义色调样式映射。ok/warn/danger/muted 四级，与状态色 token 对齐。
+ * 语义色调样式映射。ok/warn/danger/muted 四级，与状态色 token 对应。
  * 用于 Badge / 状态标签的背景+前景+边框一次性赋色。
  */
 export const toneClass: Record<string, string> = {

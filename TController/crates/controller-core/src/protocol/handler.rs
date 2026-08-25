@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn heartbeat_is_skipped_while_command_pending() {
         // 复刻 Python test_send_heartbeat_does_not_overwrite_pending_command：
-        // 心跳路径的判定就是 is_pending()——pending 存在时心跳不写线。
+        // 心跳路径的判定就是 is_pending()；pending 存在时心跳不写线。
         let mut m = RetryMachine::new();
         m.send(vec![0xBB, 0x55, 0x02, 0x02, 0x00], 0x02);
         assert!(m.is_pending());

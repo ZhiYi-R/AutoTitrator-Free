@@ -1,5 +1,5 @@
 /**
- * 前后端事件协议类型 —— 与 controller-core (Rust) 语义对齐。
+ * 前后端事件协议类型，与 controller-core (Rust) 语义一致。
  * 当前由 lib/mock/simulator.ts 实现；接入真实后端时仅需替换数据源，
  * 字段名保持 snake_case 序列化语义。
  */
