@@ -1,6 +1,7 @@
 //! 数据处理层 — Python `DataProcessor` 包的移植。
 
 pub mod ampd;
+pub mod adaptive;
 pub mod calibration;
 pub mod divergence;
 pub mod endpoint;
