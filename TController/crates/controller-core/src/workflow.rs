@@ -14,7 +14,7 @@
 use serde::Serialize;
 
 use crate::processing::calibration::PumpCalibration;
-use crate::processing::endpoint::{EndpointDetector, EndpointResult, Method};
+use crate::processing::endpoint::{DetectorParams, EndpointDetector, EndpointResult, Method};
 use crate::protocol::DownlinkCommand;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -77,9 +77,18 @@ pub struct WorkflowEngine {
 
 impl WorkflowEngine {
     pub fn new(flow_rate: f64, calibration: PumpCalibration) -> Self {
+        Self::with_detector_params(flow_rate, calibration, DetectorParams::default())
+    }
+
+    /// 自定义检测器参数的构造入口(自适应阈值等);`new()` 保持原签名。
+    pub fn with_detector_params(
+        flow_rate: f64,
+        calibration: PumpCalibration,
+        params: DetectorParams,
+    ) -> Self {
         Self {
             state: TitrationState::Idle,
-            detector: EndpointDetector::new(flow_rate),
+            detector: EndpointDetector::with_params(flow_rate, params, None),
             calibration,
             pump2_volume: 0.0,
             endpoint_volume: None,
@@ -187,6 +196,15 @@ impl WorkflowEngine {
                 outcome.conflict_at_t1 = method == Method::Conflict;
             }
             TitrationState::Degree1 | TitrationState::Titrating2 => {
+                // 停泵目标动态跟踪最新电位证据:可重入事件机可能用更深的
+                // 后发事件修正终点(Exp1 实测教训:T=1 后锁死旧候选会让
+                // 泵停在 1mL 而真突跃在 5mL)。只接受有电位证据的方法。
+                let has_potential_evidence = method == Method::Consensus
+                    || (matches!(method, Method::PotentialOnly | Method::Conflict)
+                        && potential_evidence);
+                if has_potential_evidence {
+                    self.endpoint_volume = Some(vol);
+                }
                 if let Some(ep) = self.endpoint_volume {
                     if self.pump2_volume >= 2.0 * ep {
                         let refined = self.detector.refine_with_ampd();

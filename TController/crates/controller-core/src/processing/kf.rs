@@ -278,6 +278,30 @@ impl EndpointFusionKf {
         self.last.clone()
     }
 
+    /// 是否已消费过观测(初始化后不再允许质量缩放)。
+    pub fn is_initialized(&self) -> bool {
+        self.initialized
+    }
+
+    /// 质量缩放的前置条件:配置来自 `with_params`(非自定义构造)且未被禁用。
+    /// 当前实现总是 true,保留钩子供未来按 run 禁用。
+    pub fn can_scale(&self) -> bool {
+        true
+    }
+
+    /// 首条观测前一次性缩放观测方差。单边放大:因子裁剪到 [1, 4],
+    /// 只在噪声高于标定假设时降低置信;收紧方向因缺干净基线数据校准
+    /// 而刻意禁用(保证干净数据上 NIS 数值行为与论文一致)。
+    pub fn scale_observation_variances(&mut self, potential_factor: f64, spectral_factor: f64) {
+        let clamp = |f: f64| f.clamp(1.0, 4.0);
+        if potential_factor.is_finite() && potential_factor > 0.0 {
+            self.potential_var = (self.potential_var * clamp(potential_factor)).max(1e-8);
+        }
+        if spectral_factor.is_finite() && spectral_factor > 0.0 {
+            self.spectral_var = (self.spectral_var * clamp(spectral_factor)).max(1e-8);
+        }
+    }
+
     /// 双模态均已接受观测且最近一次观测通过门控。
     pub fn can_fuse(&self) -> bool {
         self.consistent() && self.last.accepted
