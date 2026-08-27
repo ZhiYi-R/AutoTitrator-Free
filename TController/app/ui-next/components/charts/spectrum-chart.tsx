@@ -2,8 +2,8 @@
 
 /**
  * 最新光谱曲线 + J-S 散度演化曲线。
- * 散度：逐帧相对基线（前 N 帧均值分布）的 D_JS(p̂‖p₀)，nats ——
- * 与 controller-core tracker 的事件判据同口径，终点谱带突变表现为陡峭抬升。
+ * 散度值由后端检测器随帧提供（js 字段，nats）——判据真值，前端零计算；
+ * 基线幽灵曲线（前 5 帧均值）仅作显示参照。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
@@ -14,7 +14,7 @@ type SpectrumFrame = { v: number; absorbance: number[] };
 
 const BASELINE_FRAMES = 5;
 
-/** 基线光谱：前 BASELINE_FRAMES 帧吸光度逐通道均值（J-S 散度 p₀ 与基线曲线共用此窗口） */
+/** 基线光谱：前 BASELINE_FRAMES 帧吸光度逐通道均值（显示参照） */
 function baselineSpectrum(spectra: SpectrumFrame[]): number[] | null {
   if (spectra.length === 0) return null;
   const n = WAVELENGTHS.length;
@@ -24,30 +24,6 @@ function baselineSpectrum(spectra: SpectrumFrame[]): number[] | null {
     for (let r = 0; r < n; r++) acc[r] += spectra[i].absorbance[r] ?? 0;
   }
   return Array.from(acc, (a) => a / k);
-}
-
-/** 逐帧相对基线分布的 J-S 散度（nats） */
-function jsDivergenceSeries(spectra: SpectrumFrame[]): Array<{ v: number; d: number }> {
-  if (spectra.length === 0) return [];
-  const n = WAVELENGTHS.length;
-  const base = baselineSpectrum(spectra);
-  const baseSum = base ? base.reduce((a, b) => a + b, 0) : 0;
-  const p0 = base && baseSum > 0 ? base.map((b) => b / baseSum) : null;
-  if (!p0) return spectra.map((f) => ({ v: f.v, d: 0 }));
-  const js = (abs: number[]) => {
-    const s = abs.reduce((a, b) => a + b, 0);
-    if (s <= 0) return 0;
-    let d = 0;
-    for (let i = 0; i < n; i++) {
-      const p = (abs[i] ?? 0) / s;
-      const q = p0[i];
-      const m = (p + q) / 2;
-      if (p > 0) d += 0.5 * p * Math.log(p / m);
-      if (q > 0) d += 0.5 * q * Math.log(q / m);
-    }
-    return d;
-  };
-  return spectra.map((f) => ({ v: f.v, d: js(f.absorbance) }));
 }
 
 /** J-S 散度演化：横轴体积、纵轴 D_JS(nats)，与电位图共享体积轴语义 */
@@ -82,7 +58,10 @@ export function JsDivergenceChart() {
     const ph = H - mt - mb;
     if (pw < 10 || ph < 10) return;
 
-    const series = jsDivergenceSeries(spectra);
+    /* J-S 散度：后端检测器判据真值（帧内 js 字段），未产生时留空 */
+    const series = spectra
+      .filter((f) => f.js !== null && f.js !== undefined)
+      .map((f) => ({ v: f.v, d: f.js as number }));
 
     ctx.strokeStyle = cssVar("--border");
     ctx.strokeRect(ml, mt, pw, ph);

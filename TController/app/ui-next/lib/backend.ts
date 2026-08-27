@@ -24,7 +24,7 @@ export interface BackendSnapshot {
   pumpR2: number | null;
   calPoints: CalPoint[];
   potPoints: Array<{ v: number; t: number; e: number }>;
-  spectra: Array<{ v: number; absorbance: number[] }>;
+  spectra: Array<{ v: number; absorbance: number[]; js: number | null }>;
   spectralState: string;
   lastE: number | null;
   lastDeriv: number | null;

@@ -13,6 +13,7 @@
 use controller_core::processing::endpoint::{EndpointDetector, Method};
 use controller_core::processing::endpoint::PotentialState;
 use controller_core::processing::tracker::TrackerState;
+use controller_core::processing::Reconstructor;
 
 #[derive(Debug, Clone)]
 enum Row {
@@ -62,6 +63,7 @@ fn main() {
     let mut positional = Vec::new();
     let mut dump_path: Option<String> = None;
     let mut fixed = false;
+    let mut raw_spectral = false;
     let mut i = 0;
     while i < args.len() {
         if args[i] == "--dump-stats" {
@@ -69,14 +71,25 @@ fn main() {
             dump_path = args.get(i).cloned();
         } else if args[i] == "--fixed" {
             fixed = true;
+        } else if args[i] == "--raw" {
+            raw_spectral = true;
         } else {
             positional.push(args[i].clone());
         }
         i += 1;
     }
     if positional.len() < 2 {
-        eprintln!("用法: replay_csv <potential.csv> <spectrum.csv> [--dump-stats out.json] [--fixed]");
+        eprintln!("用法: replay_csv <potential.csv> <spectrum.csv> [--dump-stats out.json] [--fixed] [--raw]");
         std::process::exit(2);
+    }
+    // 生产路径：光谱帧经 calibre 重建为 721 点全谱喂检测器；--raw 对照原始 10 通道
+    let reconstructor = (!raw_spectral)
+        .then(Reconstructor::discover)
+        .and_then(|result| result.ok().map(|(reconstructor, _)| reconstructor));
+    if reconstructor.is_some() {
+        println!("(光谱判据: 721 点完整重建谱，calibre 已加载)");
+    } else {
+        println!("(光谱判据: 原始 10 通道——calibre 缺失或 --raw)");
     }
     // --fixed: 固定阈值对照(legacy 行为),用于与自适应模式的决策对账。
     let detector_params = if fixed {
@@ -137,7 +150,13 @@ fn main() {
             }
             Row::Spectrum { volume: v, time: _, channels } => {
                 volume = *v;
-                detector.feed_spectrum(*v, channels);
+                /* 生产路径：先经 calibre 重建为 721 点全谱；失败回退原始 10 通道 */
+                let feed = reconstructor
+                    .as_ref()
+                    .and_then(|reconstructor| reconstructor.reconstruct(channels).ok())
+                    .map(|(_, full)| full)
+                    .unwrap_or_else(|| channels.clone());
+                detector.feed_spectrum(*v, &feed);
             }
         }
 

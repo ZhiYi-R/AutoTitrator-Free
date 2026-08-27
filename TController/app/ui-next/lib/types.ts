@@ -59,6 +59,8 @@ export interface SpectrumFrame {
   v: number;
   /** 吸光度，与 wavelengths 等长 */
   absorbance: number[];
+  /** 检测器当前谱对基线的 D_JS（nats）——后端判据真值 */
+  js: number | null;
 }
 
 export interface KfSnapshot {

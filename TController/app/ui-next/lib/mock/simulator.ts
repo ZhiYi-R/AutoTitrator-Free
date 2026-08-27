@@ -69,6 +69,9 @@ let maxDerivVal = 0;
 let t1Fired = false;
 let degree1Ticks = 0;
 let runStartWall = 0;
+/** 光谱基线（前 5 帧均值分布）：D_JS 判据的零点 */
+let specBaseline: number[] | null = null;
+let specBaselineFrames: number[][] = [];
 
 function clearTimers() {
   if (tickTimer) clearInterval(tickTimer);
@@ -137,6 +140,34 @@ function spectralStateAt(v: number): "IDLE" | "IN_CHANGE" | "END_CONFIRMED" {
   return "END_CONFIRMED";
 }
 
+/** D_JS(p̂‖p₀) nats；分布由吸光度归一化（mock 侧判据模拟，与 tracker 同口径的简化版） */
+function jsDivergence(abs: number[], base: number[]): number {
+  const sumA = abs.reduce((a, b) => a + b, 0);
+  const sumB = base.reduce((a, b) => a + b, 0);
+  if (sumA <= 0 || sumB <= 0) return 0;
+  let d = 0;
+  for (let i = 0; i < abs.length; i++) {
+    const p = abs[i] / sumA;
+    const q = base[i] / sumB;
+    const m = (p + q) / 2;
+    if (p > 0) d += 0.5 * p * Math.log(p / m);
+    if (q > 0) d += 0.5 * q * Math.log(q / m);
+  }
+  return d;
+}
+
+/** 基线 = 前 5 帧吸光度均值分布；集满前散度为 0 */
+function accumulateBaseline(absorbance: number[]): number {
+  if (specBaseline) return jsDivergence(absorbance, specBaseline);
+  specBaselineFrames.push(absorbance);
+  if (specBaselineFrames.length < 5) return 0;
+  const n = specBaselineFrames[0].length;
+  specBaseline = Array.from({ length: n }, (_, i) =>
+    specBaselineFrames.reduce((a, f) => a + f[i], 0) / specBaselineFrames.length
+  );
+  return 0;
+}
+
 function buildResult(stage: "t1" | "final", volume: number, refined: number | null): EndpointResult {
   const sc = useStore.getState().scenario;
   const conflict = sc === "conflict";
@@ -192,7 +223,9 @@ function titrationTick() {
     const v = volume + (dose * i) / 3;
     pts.push({ v, t: nowS + i * 0.4, e: potentialAt(v) });
   }
-  const frame: SpectrumFrame = { v: newVol, absorbance: spectrumAt(newVol) };
+  const absorbance = spectrumAt(newVol);
+  const js = accumulateBaseline(absorbance);
+  const frame: SpectrumFrame = { v: newVol, absorbance, js };
 
   const potPoints = [...st.potPoints, ...pts].slice(-6000);
   const spectra = [...st.spectra, frame].slice(-2000);
@@ -345,6 +378,9 @@ export const backend = {
     maxDerivVal = 0;
     degree1Ticks = 0;
     runStartWall = Date.now();
+    /* 光谱基线重新武装（前 5 帧重新累计） */
+    specBaseline = null;
+    specBaselineFrames = [];
     /* 滴定正式采样开始，实时走条让位（体积轴成为主图） */
     useStore.setState({ liveTrace: [] });
     stopLiveTrace();

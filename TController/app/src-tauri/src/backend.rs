@@ -129,6 +129,8 @@ pub struct PotentialPoint {
 pub struct SpectrumFrame {
     pub v: f64,
     pub absorbance: Vec<f64>,
+    /// 检测器当前谱对基线的 D_JS（nats）——判据真值，前端直接绘制
+    pub js: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -733,16 +735,28 @@ impl BackendRuntime {
             Event::Spectral(values) => {
                 self.rx += 1;
                 let raw: Vec<f64> = values.iter().map(|v| *v as f64).collect();
-                let spectrum = self
+                /* 检测与判据统一用 721 点完整重建谱（信息完整，见 reconstructor）；
+                   重建器缺席（calibre 未部署）回退原始 10 通道 */
+                let reconstructed = self
                     .reconstructor
                     .as_ref()
                     .and_then(|reconstructor| reconstructor.reconstruct(&raw).ok())
-                    .map(|(_, values)| downsample_spectrum(&values))
+                    .map(|(_, values)| values);
+                let detection_input = reconstructed.clone().unwrap_or_else(|| raw.clone());
+                /* 展示谱仅降采样（61 点 UI 网格），纯显示格式化 */
+                let display = reconstructed
+                    .as_ref()
+                    .map(|values| downsample_spectrum(values))
                     .unwrap_or_else(|| raw.clone());
+                /* 检测判据：721 点完整重建谱 */
+                self.workflow.on_spectrum(&detection_input);
                 if self.run_started.is_some() {
+                    let js_base =
+                        self.workflow.detector.diagnostics().spectral_features.js_base;
                     self.spectra.push(SpectrumFrame {
                         v: self.volume,
-                        absorbance: spectrum.clone(),
+                        absorbance: display,
+                        js: Some(js_base),
                     });
                     if self.spectra.len() > 2000 {
                         let excess = self.spectra.len() - 2000;
@@ -761,7 +775,6 @@ impl BackendRuntime {
                         }
                     }
                 }
-                self.workflow.on_spectrum(&raw);
             }
             Event::Heartbeat(uptime) => {
                 /* 固件上报 uptime_ms；统一为秒计数（mock 同语义） */
