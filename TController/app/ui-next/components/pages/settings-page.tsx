@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * 设置页：外观/语言顶栏、检测参数工作台、关于底条。
+ * 设置页：系统（主题/语言/数据保存路径）、检测参数工作台、关于底条。
  */
 import { useState } from "react";
 import { useTheme } from "next-themes";
-import { Monitor, Moon, Palette, Pencil, SlidersHorizontal, Sun, Info } from "lucide-react";
+import { Check, FolderOpen, Info, Monitor, Moon, Pencil, SlidersHorizontal, Sun, X } from "lucide-react";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,33 +48,102 @@ function Segment<T extends string>({
   );
 }
 
-function AppearanceBar() {
+/** 参数行骨架：与检测参数卡同规格（label 左、控件右、发丝分隔线） */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-6 border-b px-4 py-2.5 last:border-b-0">
+      <span className="min-w-0">
+        <span className="block text-[13px] text-muted-foreground">{label}</span>
+      </span>
+      {children}
+    </div>
+  );
+}
+
+/** 系统卡：主题 / 语言 / 数据保存路径 */
+function SystemCard() {
   const t = useT();
   const { theme, setTheme } = useTheme();
   const lang = useStore((s) => s.lang);
   const setLang = useStore((s) => s.setLang);
+  const dataDir = useStore((s) => s.dataDir);
+  const setDataDir = useStore((s) => s.setDataDir);
+
+  const [editingPath, setEditingPath] = useState(false);
+  const [pathDraft, setPathDraft] = useState("");
+
+  const savePath = () => {
+    if (pathDraft.trim()) setDataDir(pathDraft);
+    setEditingPath(false);
+  };
+  /* 浏览文件夹：Tauri 对接 dialog.open；浏览器 mock 无法弹系统对话框，保持当前值 */
+  const browsePath = async () => {
+    const api = (globalThis as { __TAURI__?: { dialog?: { open?: (opts: { directory: boolean }) => Promise<string | null> } } }).__TAURI__;
+    const picked = await api?.dialog?.open({ directory: true });
+    if (typeof picked === "string" && picked) setDataDir(picked);
+  };
 
   return (
-    <div className="flex h-10 shrink-0 flex-wrap items-center gap-3 overflow-x-auto rounded-md border bg-card px-3">
-      <span className="flex items-center gap-1.5 text-[13px] font-medium whitespace-nowrap">
-        <Palette size={14} /> {t("settings.appearance")}
-      </span>
-      <span className="text-[10px] tracking-wide text-muted-foreground uppercase">{t("settings.theme")}</span>
-      <Segment
-        value={(theme ?? "dark") as "light" | "dark" | "system"}
-        onChange={setTheme}
-        options={THEMES.map(({ id, icon, key }) => ({ id, icon, label: t(key) }))}
-      />
-      <span className="text-[10px] tracking-wide text-muted-foreground uppercase">{t("settings.lang")}</span>
-      <Segment
-        value={lang}
-        onChange={setLang}
-        options={[
-          { id: "zh", label: "简体中文" },
-          { id: "en", label: "English" },
-        ]}
-      />
-    </div>
+    <Card className="flex shrink-0 flex-col gap-0 pb-0 pt-2">
+      <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b px-4">
+        <CardTitle className="flex items-center gap-2 text-[13px]">
+          <FolderOpen size={15} /> {t("settings.system")}
+        </CardTitle>
+      </div>
+      {/* 行直铺卡内：分隔线贯穿卡宽，无内嵌表格外壳 */}
+      <CardContent className="px-0 pb-0">
+        <Row label={t("settings.theme")}>
+          <Segment
+            value={(theme ?? "dark") as "light" | "dark" | "system"}
+            onChange={setTheme}
+            options={THEMES.map(({ id, icon, key }) => ({ id, icon, label: t(key) }))}
+          />
+        </Row>
+        <Row label={t("settings.lang")}>
+          <Segment
+            value={lang}
+            onChange={setLang}
+            options={[
+              { id: "zh", label: "简体中文" },
+              { id: "en", label: "English" },
+            ]}
+          />
+        </Row>
+        <Row label={t("settings.dataDir")}>
+          {editingPath ? (
+            <span className="flex items-center gap-1">
+              <Input
+                value={pathDraft}
+                onChange={(e) => setPathDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") savePath();
+                  if (e.key === "Escape") setEditingPath(false);
+                }}
+                autoFocus
+                spellCheck={false}
+                className="h-8 w-[24rem] rounded-sm font-mono text-[12px]"
+                aria-label={t("settings.dataDir")}
+              />
+              <Button size="sm" variant="ghost" className="h-8 w-8 px-0" title={t("settings.cancel")} onClick={() => setEditingPath(false)}>
+                <X size={13} />
+              </Button>
+              <Button size="sm" className="h-8 w-8 px-0" title={t("settings.savePath")} disabled={!pathDraft.trim()} onClick={savePath}>
+                <Check size={13} />
+              </Button>
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <span className="max-w-[22rem] truncate rounded-sm border bg-muted/40 px-2.5 py-1.5 font-mono text-[12px]" title={dataDir}>
+                {dataDir || "—"}
+              </span>
+              <Button size="sm" variant="outline" className="h-8 gap-1 rounded-sm" onClick={() => void browsePath()}>
+                <FolderOpen size={12} /> {t("settings.browse")}
+              </Button>
+            </span>
+          )}
+        </Row>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -104,7 +173,7 @@ function ParamRow({
   onDraft: (raw: string) => void;
 }) {
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_10rem] items-center gap-6 border-b px-4 last:border-b-0">
+    <div className="grid grid-cols-[minmax(0,1fr)_13rem] items-center gap-6 border-b px-4 py-2.5 last:border-b-0">
       <span className="text-[13px] text-muted-foreground">{label}</span>
       {editing ? (
         <span className="flex h-8 items-stretch overflow-hidden rounded-sm border ring-1 ring-foreground/20">
@@ -122,7 +191,7 @@ function ParamRow({
           </span>
         </span>
       ) : (
-        <span className="readout text-right text-[12px] font-medium">
+        <span className="readout text-right text-[13px] font-medium">
           {formatParam(value, digits)} <span className="font-normal text-muted-foreground">{unit}</span>
         </span>
       )}
@@ -167,7 +236,7 @@ function DetectionCard() {
   };
 
   return (
-    <Card className="flex min-h-0 flex-1 flex-col">
+    <Card className="flex shrink-0 flex-col gap-0 pb-0 pt-2">
       <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b px-4">
         <CardTitle className="flex items-center gap-2 text-[13px]">
           <SlidersHorizontal size={15} /> {t("settings.detection")}
@@ -187,8 +256,8 @@ function DetectionCard() {
           </Button>
         )}
       </div>
-      <CardContent className="min-h-0 flex-1 px-4 pb-3">
-        <div className={cn("flex h-full flex-col overflow-hidden rounded-sm border", editing && "ring-1 ring-foreground/15")}>
+      <CardContent className="px-0 pb-0">
+        <div className={cn("flex flex-col", editing && "ring-1 ring-foreground/15")}>
           <ParamRow
             label={t("settings.t1")}
             unit="V/mL"
@@ -222,9 +291,9 @@ function DetectionCard() {
             step={0.01}
             onDraft={(raw) => setDraft((d) => ({ ...d, overTitrate: raw }))}
           />
-          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_10rem] items-center gap-6 border-b px-4">
+          <div className="grid grid-cols-[minmax(0,1fr)_13rem] items-center gap-6 border-b px-4 py-2.5">
             <span className="text-[13px] text-muted-foreground">{t("settings.window")}</span>
-            <span className="readout text-right text-[12px]">380 – 1100 nm · 61 ch</span>
+            <span className="readout text-right text-[13px]">380 – 1100 nm · 61 ch</span>
           </div>
           <ParamRow
             label={t("settings.tol")}
@@ -268,7 +337,7 @@ function AboutBar() {
 export function SettingsPage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-2.5 p-2.5">
-      <AppearanceBar />
+      <SystemCard />
       <DetectionCard />
       <AboutBar />
     </div>

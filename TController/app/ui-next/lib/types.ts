@@ -49,6 +49,12 @@ export interface PotentialPoint {
   e: number;
 }
 
+/** 连接后待机/进样阶段的实时电极采样（时间轴，墙钟 ms） */
+export interface LiveSample {
+  t: number;
+  e: number;
+}
+
 export interface SpectrumFrame {
   v: number;
   /** 吸光度，与 wavelengths 等长 */

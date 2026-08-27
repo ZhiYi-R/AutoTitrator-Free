@@ -60,6 +60,7 @@ let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let elapsedTimer: ReturnType<typeof setInterval> | null = null;
 let injectionTimer: ReturnType<typeof setInterval> | null = null;
 let phaseTimer: ReturnType<typeof setTimeout> | null = null;
+let liveTimer: ReturnType<typeof setInterval> | null = null;
 
 let cfg: ScenarioCfg = SCENARIOS.normal;
 let maxDerivVol = 0;
@@ -74,6 +75,27 @@ function clearTimers() {
   if (phaseTimer) clearTimeout(phaseTimer);
   if (elapsedTimer) clearInterval(elapsedTimer);
   tickTimer = injectionTimer = elapsedTimer = phaseTimer = null;
+}
+
+/**
+ * 连接期间的实时电极采样（1Hz）：待机/进样阶段电极持续有读数，
+ * 电位图以时间轴走条呈现，替代空态占位。
+ */
+function startLiveTrace() {
+  if (liveTimer) return;
+  liveTimer = setInterval(() => {
+    const s = useStore.getState();
+    if (!s.connected) return;
+    useStore.setState({
+      liveTrace: [...s.liveTrace, { t: Date.now(), e: potentialAt(0) }].slice(-240),
+      lastE: potentialAt(0),
+    });
+  }, 1000);
+}
+
+function stopLiveTrace() {
+  if (liveTimer) clearInterval(liveTimer);
+  liveTimer = null;
 }
 
 function speed() {
@@ -223,6 +245,8 @@ function finishRun(patch: Record<string, unknown>) {
   });
   clearTimers();
   log("ok", "log.done", { v: refined.toFixed(2), m: final.method });
+  /* 数据落盘演示：真实后端把运行记录写为 dataDir 下的 CSV */
+  if (st.dataDir) log("info", "log.dataWritten", { dir: st.dataDir });
   const { lang } = useStore.getState();
   toast.success(translate(lang, "toast.done", { v: refined.toFixed(2) }));
   recordHistory(false);
@@ -284,12 +308,14 @@ export const backend = {
         const s = useStore.getState();
         if (s.connected) useStore.setState({ heartbeatTick: s.heartbeatTick + 1, rx: s.rx + 1 });
       }, 1000);
+      startLiveTrace();
     }, 600);
   },
 
   disconnect() {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = null;
+    stopLiveTrace();
     clearTimers();
     this.abort(true);
     useStore.setState({ connected: false, pump1Running: false, pump2Running: false, tubingOp: null });
@@ -317,6 +343,9 @@ export const backend = {
     maxDerivVal = 0;
     degree1Ticks = 0;
     runStartWall = Date.now();
+    /* 滴定正式采样开始，实时走条让位（体积轴成为主图） */
+    useStore.setState({ liveTrace: [] });
+    stopLiveTrace();
     const sample = st.sampleInput;
     const injectionDuration = 2600 / speed();
     const injectionTargetSteps = pumpCal.slopeMlPerStep > 0
@@ -450,7 +479,21 @@ export const backend = {
   /** 从后端重新读出当前载入的泵标定（mock：回放 calibre 镜像）。 */
   loadPumpCalibration() {
     publishPumpCal();
-    useStore.setState({ ports: MOCK_PORTS, port: useStore.getState().port || MOCK_PORTS[0].portName });
+    /* 数据保存路径：mock 侧持久化于 localStorage，默认为系统文档目录语义 */
+    const KEY = "autotitrator.dataDir";
+    const stored = typeof localStorage !== "undefined" ? localStorage.getItem(KEY) : null;
+    useStore.setState({
+      ports: MOCK_PORTS,
+      port: useStore.getState().port || MOCK_PORTS[0].portName,
+      dataDir: stored ?? "D:\\AutoTitrator\\Data",
+    });
+  },
+
+  /** 持久化数据保存路径（mock：localStorage；Tauri 侧为 settings.json）。 */
+  setDataDir(dir: string) {
+    try { localStorage.setItem("autotitrator.dataDir", dir); } catch { /* 隐私模式等 */ }
+    const { lang } = useStore.getState();
+    if (dir) useStore.getState().addLog("ok", translate(lang, "log.dataDirSet", { dir }));
   },
 
   /** 把本次会话拟合写回后端标定文件，再镜像到 store。 */

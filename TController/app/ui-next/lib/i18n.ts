@@ -75,10 +75,13 @@ const dict = {
   "statusbar.tx": { zh: "发送", en: "TX" },
   "statusbar.heartbeat": { zh: "心跳", en: "Heartbeat" },
 
-  "chart.potentialTitle": { zh: "电位 – 体积曲线", en: "Potential – Volume" },
-  "chart.spectrumTitle": { zh: "当前光谱", en: "Live spectrum" },
+  "chart.potentialTitle": { zh: "电位", en: "Potential" },
+  "chart.spectrumTitle": { zh: "光谱", en: "Spectrum" },
   "chart.heatmapTitle": { zh: "演化", en: "Evolution" },
+  "chart.jsTitle": { zh: "J-S 散度", en: "J-S divergence" },
   "chart.latest": { zh: "最新光谱", en: "Latest spectrum" },
+  "chart.current": { zh: "当前", en: "Current" },
+  "chart.baseline": { zh: "基线", en: "Baseline" },
   "chart.empty": { zh: "等待数据", en: "Waiting for data" },
   "chart.emptyHint": { zh: "连接设备后开始滴定", en: "Connect, then start a run" },
 
@@ -86,6 +89,7 @@ const dict = {
   "results.t1": { zh: "T=1 初判", en: "T=1 first pass" },
   "results.final": { zh: "最终结果", en: "Final result" },
   "results.pending": { zh: "等待终点…", en: "Awaiting endpoint…" },
+  "results.running": { zh: "进行中", en: "Running" },
   "results.volume": { zh: "终点体积", en: "Volume" },
   "results.method": { zh: "判定方法", en: "Method" },
   "results.confidence": { zh: "置信度", en: "Confidence" },
@@ -112,7 +116,9 @@ const dict = {
   "spectral.END_CONFIRMED": { zh: "终点确认", en: "Confirmed" },
 
   "log.title": { zh: "事件日志", en: "Event Log" },
-  "log.clear": { zh: "清空", en: "Clear" },
+  "log.empty": { zh: "暂无事件", en: "No events yet" },
+  "log.dataDirSet": { zh: "数据保存路径已更新：{dir}", en: "Data directory set: {dir}" },
+  "log.dataWritten": { zh: "实验数据已写入 {dir}", en: "Run data written to {dir}" },
 
   "cal.pumpTitle": { zh: "泵标定", en: "Pump calibration" },
   "cal.progress": { zh: "标定点", en: "Points" },
@@ -181,6 +187,10 @@ const dict = {
   "history.completed": { zh: "完成", en: "Completed" },
 
   "settings.title": { zh: "设置", en: "Settings" },
+  "settings.system": { zh: "系统", en: "System" },
+  "settings.dataDir": { zh: "数据保存路径", en: "Data directory" },
+  "settings.browse": { zh: "浏览文件夹", en: "Browse" },
+  "settings.savePath": { zh: "保存", en: "Save" },
   "settings.appearance": { zh: "外观", en: "Appearance" },
   "settings.theme": { zh: "主题", en: "Theme" },
   "settings.theme.dark": { zh: "深色", en: "Dark" },

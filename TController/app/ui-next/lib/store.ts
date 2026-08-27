@@ -4,6 +4,7 @@ import type {
   Confidence,
   EndpointResult,
   HistoryRun,
+  LiveSample,
   LogEntry,
   Method,
   PotentialPoint,
@@ -75,6 +76,8 @@ export interface AppState {
   tubingP1: boolean;
   tubingP2: boolean;
   potPoints: PotentialPoint[];
+  /** 连接后待机/进样阶段的实时电极走条（时间轴）；滴定数据产生后图表切换体积轴 */
+  liveTrace: LiveSample[];
   spectra: SpectrumFrame[];
   spectralState: SpectralState;
   lastE: number | null;
@@ -96,6 +99,8 @@ export interface AppState {
   logs: LogEntry[];
   history: HistoryRun[];
   calPoints: CalPoint[];
+  /** 实验数据（CSV/导出）保存目录；Tauri 侧持久化于 settings.json */
+  dataDir: string;
   detection: DetectionParams;
   analysis: AnalysisParams;
 
@@ -111,13 +116,13 @@ export interface AppState {
   setWatchdog: (on: boolean) => void;
   setDetection: (patch: Partial<DetectionParams>) => void;
   setAnalysis: (patch: Partial<AnalysisParams>) => void;
-  clearLogs: () => void;
+  setDataDir: (dir: string) => void;
   addLog: (level: LogEntry["level"], text: string, opts?: { pump?: 1 | 2 }) => void;
   recordRun: (run: Omit<HistoryRun, "id" | "startedAt">) => void;
   resetRunData: () => void;
 }
 
-const initial: Omit<AppState, "setLang" | "setPage" | "toggleNav" | "setPort" | "setBaud" | "setSampleInput" | "setScenario" | "setSpeed" | "setTubingPumps" | "setWatchdog" | "setDetection" | "setAnalysis" | "clearLogs" | "addLog" | "recordRun" | "resetRunData"> = {
+const initial: Omit<AppState, "setLang" | "setPage" | "toggleNav" | "setPort" | "setBaud" | "setSampleInput" | "setScenario" | "setSpeed" | "setTubingPumps" | "setWatchdog" | "setDetection" | "setAnalysis" | "setDataDir" | "addLog" | "recordRun" | "resetRunData"> = {
   lang: "zh",
   page: "titration",
   navCollapsed: false,
@@ -137,6 +142,7 @@ const initial: Omit<AppState, "setLang" | "setPage" | "toggleNav" | "setPort" | 
   tubingP1: true,
   tubingP2: true,
   potPoints: [],
+  liveTrace: [],
   spectra: [],
   spectralState: "IDLE",
   lastE: null,
@@ -158,6 +164,7 @@ const initial: Omit<AppState, "setLang" | "setPage" | "toggleNav" | "setPort" | 
   logs: [],
   history: [],
   calPoints: [],
+  dataDir: "",
   detection: { ...DEFAULT_DETECTION },
   analysis: { ...DEFAULT_ANALYSIS },
 };
@@ -264,21 +271,22 @@ export const useStore = create<AppState>()((set, get) => ({
   setAnalysis: (patch) => {
     set({ analysis: { ...get().analysis, ...patch } });
   },
-  clearLogs: () => set({ logs: [] }),
-  /* 仅泵手动操作入 store（维护页「动作记录」消费）；其余运行事件只进 console */
+  setDataDir: (dataDir) => {
+    const dir = dataDir.trim();
+    set({ dataDir: dir });
+    void backend.setUiSettings({ dataDir: dir });
+  },
+  /* 运行事件全量入 store（工作台「事件日志」消费）；无泵标记的照旧镜像到 console */
   addLog: (level, text, opts) => {
-    if (opts?.pump) {
-      set({ logs: [...get().logs, { t: Date.now(), level, text }].slice(-400) });
-      return;
-    }
-    console.debug(`[autotitrator:${level}] ${text}`);
+    set({ logs: [...get().logs, { t: Date.now(), level, text }].slice(-400) });
+    if (!opts?.pump) console.debug(`[autotitrator:${level}] ${text}`);
   },
   recordRun: (run) => {
     const entry: HistoryRun = { ...run, id: Math.random().toString(36).slice(2, 9), startedAt: Date.now() };
     set({ history: [entry, ...get().history].slice(0, 30) });
   },
   resetRunData: () => {
-    set({ workflow: "idle", volume: 0, elapsedMs: 0, potPoints: [], spectra: [], spectralState: "IDLE", lastE: null, lastDeriv: null, t1: null, final: null });
+    set({ workflow: "idle", volume: 0, elapsedMs: 0, potPoints: [], liveTrace: [], spectra: [], spectralState: "IDLE", lastE: null, lastDeriv: null, t1: null, final: null });
     void backend.reset();
   },
 }));

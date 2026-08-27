@@ -1,24 +1,60 @@
 "use client";
 
 /**
- * 光谱演化热图 + 最新光谱曲线。
- * 热图：横轴滴加体积、纵轴波长、灰度=吸光度 —— 终点处 560nm 指示剂谱带
- * 的突变在灰阶图上表现为一条清晰的纵向亮带。
+ * 最新光谱曲线 + J-S 散度演化曲线。
+ * 散度：逐帧相对基线（前 N 帧均值分布）的 D_JS(p̂‖p₀)，nats ——
+ * 与 controller-core tracker 的事件判据同口径，终点谱带突变表现为陡峭抬升。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useTheme } from "next-themes";
 import { useStore } from "@/lib/store";
 import { WAVELENGTHS } from "@/lib/types";
 import { cssVar, fmt, niceTicks, setupCanvas, thinTicks } from "@/lib/chart-utils";
 
-const M = { l: 28, r: 6, t: 6, b: 16 };
-const MAX_COLS = 720;
+type SpectrumFrame = { v: number; absorbance: number[] };
 
-export function SpectrumHeatmap() {
+const BASELINE_FRAMES = 5;
+
+/** 基线光谱：前 BASELINE_FRAMES 帧吸光度逐通道均值（J-S 散度 p₀ 与基线曲线共用此窗口） */
+function baselineSpectrum(spectra: SpectrumFrame[]): number[] | null {
+  if (spectra.length === 0) return null;
+  const n = WAVELENGTHS.length;
+  const k = Math.min(BASELINE_FRAMES, spectra.length);
+  const acc = new Float64Array(n);
+  for (let i = 0; i < k; i++) {
+    for (let r = 0; r < n; r++) acc[r] += spectra[i].absorbance[r] ?? 0;
+  }
+  return Array.from(acc, (a) => a / k);
+}
+
+/** 逐帧相对基线分布的 J-S 散度（nats） */
+function jsDivergenceSeries(spectra: SpectrumFrame[]): Array<{ v: number; d: number }> {
+  if (spectra.length === 0) return [];
+  const n = WAVELENGTHS.length;
+  const base = baselineSpectrum(spectra);
+  const baseSum = base ? base.reduce((a, b) => a + b, 0) : 0;
+  const p0 = base && baseSum > 0 ? base.map((b) => b / baseSum) : null;
+  if (!p0) return spectra.map((f) => ({ v: f.v, d: 0 }));
+  const js = (abs: number[]) => {
+    const s = abs.reduce((a, b) => a + b, 0);
+    if (s <= 0) return 0;
+    let d = 0;
+    for (let i = 0; i < n; i++) {
+      const p = (abs[i] ?? 0) / s;
+      const q = p0[i];
+      const m = (p + q) / 2;
+      if (p > 0) d += 0.5 * p * Math.log(p / m);
+      if (q > 0) d += 0.5 * q * Math.log(q / m);
+    }
+    return d;
+  };
+  return spectra.map((f) => ({ v: f.v, d: js(f.absorbance) }));
+}
+
+/** J-S 散度演化：横轴体积、纵轴 D_JS(nats)，与电位图共享体积轴语义 */
+export function JsDivergenceChart() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const spectra = useStore((s) => s.spectra);
-  const { resolvedTheme } = useTheme();
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
@@ -34,88 +70,68 @@ export function SpectrumHeatmap() {
     if (!canvas || size.w < 10 || size.h < 10) return;
     const ctx = setupCanvas(canvas);
     if (!ctx) return;
-    const dark = resolvedTheme === "dark";
 
     const W = size.w;
     const H = size.h;
     ctx.clearRect(0, 0, W, H);
-    const pw = W - M.l - M.r;
-    const ph = H - M.t - M.b;
+    const ml = 36;
+    const mr = 8;
+    const mt = 8;
+    const mb = 18;
+    const pw = W - ml - mr;
+    const ph = H - mt - mb;
     if (pw < 10 || ph < 10) return;
 
-    const grid = cssVar("--chart-grid");
-    const text = cssVar("--muted-foreground");
+    const series = jsDivergenceSeries(spectra);
+
     ctx.strokeStyle = cssVar("--border");
-    ctx.strokeRect(M.l, M.t, pw, ph);
+    ctx.strokeRect(ml, mt, pw, ph);
     ctx.font = "9px ui-monospace, monospace";
 
-    /* y 轴：波长（窄栏只标关键刻度） */
-    for (const wl of thinTicks([400, 600, 800, 1000], ph)) {
-      const y = M.t + (1 - (wl - 380) / 720) * ph;
-      ctx.fillStyle = text;
-      ctx.textAlign = "right";
-      ctx.fillText(String(wl), M.l - 6, y + 3);
-      ctx.strokeStyle = grid;
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath();
-      ctx.moveTo(M.l, y);
-      ctx.lineTo(M.l + pw, y);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
+    /* y 轴：散度，量级随体系变化，刻度小数位自适应 */
+    const dMax = Math.max(1e-6, ...series.map((s) => s.d));
+    const yTicks = niceTicks(0, dMax, 3);
+    const yMax = yTicks[yTicks.length - 1] || 1;
+    const dec = yMax < 0.005 ? 4 : yMax < 0.05 ? 3 : 2;
+    ctx.textAlign = "right";
+    for (const d of yTicks) {
+      const y = mt + (1 - d / yMax) * ph;
+      ctx.fillStyle = cssVar("--muted-foreground");
+      ctx.fillText(fmt(d, dec), ml - 4, y + 3);
+      if (d > 0) {
+        ctx.strokeStyle = cssVar("--chart-grid");
+        ctx.globalAlpha = 0.35;
+        ctx.beginPath();
+        ctx.moveTo(ml, y);
+        ctx.lineTo(ml + pw, y);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
     }
 
-    if (spectra.length < 2) return;
-
-    /* x 轴：体积 */
-    const vMax = spectra[spectra.length - 1].v;
-    for (const v of thinTicks(niceTicks(0, vMax, 6), pw, 34)) {
-      const x = M.l + (v / vMax) * pw;
-      ctx.fillStyle = text;
+    /* x 轴：体积（mL），与热图/potential 图同轴语义 */
+    const vMax = series.length > 0 ? series[series.length - 1].v : 0;
+    if (vMax > 0) {
       ctx.textAlign = "center";
-      ctx.fillText(fmt(v, 1), x, H - 6);
-    }
-
-    /* 数据范围 */
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (const f of spectra) {
-      for (const a of f.absorbance) {
-        if (a < lo) lo = a;
-        if (a > hi) hi = a;
+      for (const v of thinTicks(niceTicks(0, vMax, 5), pw, 34)) {
+        const x = ml + (v / vMax) * pw;
+        ctx.fillStyle = cssVar("--muted-foreground");
+        ctx.fillText(fmt(v, 1), x, H - 5);
       }
     }
-    const span = Math.max(1e-6, hi - lo);
 
-    /* 离屏位图（列=帧、行=通道），再缩放绘制 */
-    const stride = Math.max(1, Math.ceil(spectra.length / MAX_COLS));
-    const cols = Math.ceil(spectra.length / stride);
-    const off = document.createElement("canvas");
-    off.width = cols;
-    off.height = WAVELENGTHS.length;
-    const octx = off.getContext("2d");
-    if (!octx) return;
-    const img = octx.createImageData(cols, WAVELENGTHS.length);
-    for (let c = 0; c < cols; c++) {
-      const f = spectra[c * stride];
-      for (let r = 0; r < WAVELENGTHS.length; r++) {
-        const t = (f.absorbance[r] - lo) / span;
-        const g = dark ? Math.round(30 + t * 215) : Math.round(245 - t * 215);
-        const idx = (r * cols + c) * 4;
-        img.data[idx] = g;
-        img.data[idx + 1] = g;
-        img.data[idx + 2] = g;
-        img.data[idx + 3] = 255;
-      }
-    }
-    octx.putImageData(img, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    /* y 方向翻转：波长小的在上 */
-    ctx.save();
-    ctx.translate(M.l, M.t + ph);
-    ctx.scale(pw / cols, -ph / WAVELENGTHS.length);
-    ctx.drawImage(off, 0, 0);
-    ctx.restore();
-  }, [spectra, size, resolvedTheme]);
+    if (series.length === 0) return;
+    ctx.strokeStyle = cssVar("--curve-derivative");
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    series.forEach((s, i) => {
+      const x = ml + (vMax > 0 ? (s.v / vMax) * pw : 0);
+      const y = mt + (1 - Math.min(s.d / yMax, 1)) * ph;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }, [spectra, size]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(draw);
@@ -123,7 +139,7 @@ export function SpectrumHeatmap() {
   }, [draw]);
 
   return (
-    <div ref={wrapRef} className="absolute inset-0 bg-transparent">
+    <div ref={wrapRef} className="absolute inset-0">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
     </div>
   );
@@ -134,7 +150,6 @@ export function LatestSpectrum() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const spectra = useStore((s) => s.spectra);
-  const { resolvedTheme } = useTheme();
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
@@ -173,16 +188,42 @@ export function LatestSpectrum() {
 
     const frame = spectra[spectra.length - 1];
     if (!frame) return;
+    /* 基线幽灵曲线：≥2 帧后才画（单帧时基线≈当前帧，无信息量） */
+    const baseline = spectra.length >= 2 ? baselineSpectrum(spectra) : null;
     let lo = Infinity;
     let hi = -Infinity;
     for (const a of frame.absorbance) {
       if (a < lo) lo = a;
       if (a > hi) hi = a;
     }
+    if (baseline) {
+      for (const a of baseline) {
+        if (a < lo) lo = a;
+        if (a > hi) hi = a;
+      }
+    }
     const span = Math.max(1e-6, hi - lo);
+    ctx.fillStyle = cssVar("--muted-foreground");
     ctx.textAlign = "right";
     ctx.fillText(fmt(hi, 2), ml - 3, mt + 8);
     ctx.fillText(fmt(lo, 2), ml - 3, mt + ph);
+
+    if (baseline) {
+      ctx.strokeStyle = cssVar("--muted-foreground");
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath();
+      baseline.forEach((a, i) => {
+        const x = ml + ((WAVELENGTHS[i] - 380) / 720) * pw;
+        const y = mt + (1 - (a - lo) / span) * ph;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
 
     ctx.strokeStyle = cssVar("--curve-spectrum");
     ctx.lineWidth = 1.5;
@@ -194,7 +235,7 @@ export function LatestSpectrum() {
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
-  }, [spectra, size, resolvedTheme]);
+  }, [spectra, size]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(draw);

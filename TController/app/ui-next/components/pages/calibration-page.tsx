@@ -16,7 +16,7 @@ import { useStore } from "@/lib/store";
 import { useT } from "@/lib/i18n";
 import { backend } from "@/lib/backend";
 import type { CalPoint } from "@/lib/types";
-import { cssVar, setupCanvas } from "@/lib/chart-utils";
+import { cssVar, niceTicks, setupCanvas, thinTicks } from "@/lib/chart-utils";
 import { cn } from "@/lib/utils";
 
 /* ---------------- 泵标定：点动 + 多点线性拟合 ---------------- */
@@ -81,10 +81,11 @@ function CalScatter({ points, fit, loadedSlope }: { points: CalPoint[]; fit: Fit
 
       const loadedK = loadedSlope > 0 ? 1 / loadedSlope : 0;
       const xMax = Math.max(4200, ...points.map((p) => p.steps)) * 1.06;
+      /* y 量程贴合数据点（含新拟合线末端），载入参考线超出部分裁剪掉，
+         避免旧斜率把 16 个点压到图的下半段 */
       const yMax = Math.max(
         0.2,
         ...points.map((p) => p.vol),
-        loadedK * xMax,
         fit ? fit.k * xMax + fit.b : 0,
       ) * 1.1;
       const xOf = (x: number) => ml + (x / xMax) * pw;
@@ -94,13 +95,21 @@ function CalScatter({ points, fit, loadedSlope }: { points: CalPoint[]; fit: Fit
       ctx.strokeRect(ml, mt, pw, ph);
       ctx.font = "9px ui-monospace, monospace";
       ctx.fillStyle = cssVar("--muted-foreground");
-      ctx.textAlign = "center";
-      for (const f of [0.25, 0.5, 0.75]) ctx.fillText(String(Math.round(xMax * f)), xOf(xMax * f), H - 6);
-      /* 末端刻度右对齐，避免文字越出画布右缘被裁掉 */
+      for (const x of thinTicks(niceTicks(0, xMax, 5), pw, 52)) {
+        ctx.textAlign = x === xMax ? "right" : "center";
+        ctx.fillText(x.toLocaleString(), xOf(x), H - 6);
+      }
       ctx.textAlign = "right";
-      ctx.fillText(String(Math.round(xMax)), ml + pw, H - 6);
-      for (const f of [0.5, 1]) ctx.fillText((yMax * f).toFixed(2), ml - 4, yOf(yMax * f) + 3);
+      for (const y of niceTicks(0, yMax, 4)) {
+        if (y === 0) continue;
+        ctx.fillText(y.toFixed(2), ml - 4, yOf(y) + 3);
+      }
 
+      /* 参考线可能超出数据主导的 y 量程，裁剪在绘图区内 */
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(ml, mt, pw, ph);
+      ctx.clip();
       if (loadedK > 0) {
         ctx.strokeStyle = cssVar("--curve-derivative");
         ctx.lineWidth = 1.25;
@@ -119,11 +128,15 @@ function CalScatter({ points, fit, loadedSlope }: { points: CalPoint[]; fit: Fit
         ctx.lineTo(xOf(xMax), yOf(fit.k * xMax + fit.b));
         ctx.stroke();
       }
+      ctx.restore();
       ctx.fillStyle = cssVar("--foreground");
+      ctx.strokeStyle = cssVar("--popover");
+      ctx.lineWidth = 1;
       for (const p of points) {
         ctx.beginPath();
         ctx.arc(xOf(p.steps), yOf(p.vol), 2.5, 0, Math.PI * 2);
         ctx.fill();
+        ctx.stroke();
       }
     });
     return () => cancelAnimationFrame(raf);
@@ -256,7 +269,7 @@ function PumpCalibration() {
               onChange={(e) => setMeasuredText(e.target.value)} className={spin} aria-label={t("cal.weigh")} />
             <span className={clusterUnit}>mL</span>
             <Separator orientation="vertical" />
-            <Button size="sm" className="h-full rounded-none px-2.5" disabled={busy || cumSteps <= 0 || !measuredOk} onClick={addPoint}>
+            <Button size="sm" variant="outline" className="h-full rounded-none border-0 px-2.5 shadow-none" disabled={busy || cumSteps <= 0 || !measuredOk} onClick={addPoint}>
               <Plus size={13} /> {t("cal.addPoint")}
             </Button>
           </div>

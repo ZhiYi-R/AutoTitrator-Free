@@ -15,6 +15,7 @@ export function PotentialChart() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const potPoints = useStore((s) => s.potPoints);
+  const liveTrace = useStore((s) => s.liveTrace);
   const t1 = useStore((s) => s.t1);
   const final = useStore((s) => s.final);
   const { resolvedTheme } = useTheme();
@@ -40,7 +41,98 @@ export function PotentialChart() {
     return out;
   }, [potPoints]);
 
+  /** 待机/进样阶段：时间轴实时走条（无体积语义，右端=最新） */
+  const drawLive = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || size.w < 10 || size.h < 10 || liveTrace.length === 0) return;
+    const ctx = setupCanvas(canvas);
+    if (!ctx) return;
+
+    const grid = cssVar("--chart-grid");
+    const gridStrong = cssVar("--border");
+    const text = cssVar("--muted-foreground");
+    const colE = cssVar("--curve-potential");
+
+    const W = size.w;
+    const H = size.h;
+    ctx.clearRect(0, 0, W, H);
+    const M = { l: 46, r: 46, t: 12, b: 26 };
+    const pw = W - M.l - M.r;
+    const ph = H - M.t - M.b;
+    if (pw < 10 || ph < 10) return;
+
+    /* 窗口：最近 120s，右端对齐最新采样 */
+    const WINDOW_MS = 120_000;
+    const tNow = liveTrace[liveTrace.length - 1].t;
+    const tMin = tNow - WINDOW_MS;
+    const win = liveTrace.filter((p) => p.t >= tMin);
+    let eMin = Infinity;
+    let eMax = -Infinity;
+    for (const p of win) {
+      if (p.e < eMin) eMin = p.e;
+      if (p.e > eMax) eMax = p.e;
+    }
+    const ePad = Math.max(0.02, (eMax - eMin) * 0.25);
+    eMin -= ePad;
+    eMax += ePad;
+
+    const xOf = (t: number) => M.l + ((t - tMin) / WINDOW_MS) * pw;
+    const yOfE = (e: number) => M.t + (1 - (e - eMin) / (eMax - eMin)) * ph;
+
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.lineWidth = 1;
+    for (const e of thinTicks(niceTicks(eMin, eMax, 5), ph)) {
+      const y = yOfE(e);
+      ctx.strokeStyle = grid;
+      ctx.beginPath();
+      ctx.moveTo(M.l, y);
+      ctx.lineTo(M.l + pw, y);
+      ctx.stroke();
+      ctx.fillStyle = text;
+      ctx.textAlign = "right";
+      ctx.fillText(fmt(e, 2), M.l - 6, y + 3);
+    }
+    /* 时间刻度：窗口右端为 0s（当前），向左增长 */
+    for (const s of [0, 30, 60, 90, 120]) {
+      const x = M.l + pw - (s / 120) * pw;
+      ctx.strokeStyle = grid;
+      ctx.beginPath();
+      ctx.moveTo(x, M.t);
+      ctx.lineTo(x, M.t + ph);
+      ctx.stroke();
+      ctx.fillStyle = text;
+      ctx.textAlign = s === 0 ? "right" : "center";
+      ctx.fillText(s === 0 ? "now" : `-${s}s`, Math.min(x, M.l + pw - 2), H - 8);
+    }
+    ctx.strokeStyle = gridStrong;
+    ctx.strokeRect(M.l, M.t, pw, ph);
+
+    if (win.length > 1) {
+      ctx.strokeStyle = colE;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      win.forEach((p, i) => {
+        const x = xOf(p.t);
+        const y = yOfE(p.e);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      /* 最新值端点标记 */
+      const last = win[win.length - 1];
+      ctx.fillStyle = colE;
+      ctx.beginPath();
+      ctx.arc(xOf(last.t), yOfE(last.e), 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, [liveTrace, size]);
+
   const draw = useCallback(() => {
+    if (potPoints.length === 0) {
+      drawLive();
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas || size.w < 10 || size.h < 10) return;
     const ctx = setupCanvas(canvas);
@@ -225,7 +317,7 @@ export function PotentialChart() {
         ctx.fillText(label, bx + 6, M.t + 28);
       }
     }
-  }, [potPoints, deriv, t1, final, size, hoverX, resolvedTheme]);
+  }, [potPoints, deriv, t1, final, size, hoverX, resolvedTheme, drawLive]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(draw);

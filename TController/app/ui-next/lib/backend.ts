@@ -215,6 +215,7 @@ export const backend = {
   },
   setUiSettings: async (patch: Record<string, unknown>) => {
     if (isTauriRuntime()) await invoke("set_ui_settings", { patch });
+    else if (typeof patch.dataDir === "string") await callMock("setDataDir", patch.dataDir);
     else await callMock("retune");
   },
   setTubingPumps: async (p1: boolean, p2: boolean) => {

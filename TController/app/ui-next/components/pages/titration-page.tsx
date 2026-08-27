@@ -4,17 +4,19 @@
  * 滴定工作台：主视图。
  * 左列双图表（电位-体积 / 光谱热图+最新光谱），右列终点结果。
  */
+import { Fragment } from "react";
 import { Check, ChevronRight, CircleSlash, Droplets } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useStore, confidenceTone, methodTone, reliabilityTone, analyteConcentration } from "@/lib/store";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { toneClass } from "@/lib/tone";
 import { PotentialChart } from "@/components/charts/potential-chart";
-import { SpectrumHeatmap, LatestSpectrum } from "@/components/charts/spectrum-chart";
+import { LatestSpectrum, JsDivergenceChart } from "@/components/charts/spectrum-chart";
 import { backend } from "@/lib/backend";
 import type { EndpointResult, WorkflowState } from "@/lib/types";
 
@@ -96,45 +98,51 @@ function Stepper() {
 
 /* ---------------- 结果面板 ---------------- */
 
-function ResultBlock({ r, compact = false }: { r: EndpointResult; compact?: boolean }) {
+function ResultBlock({ title, r, running, large = false }: { title: string; r: EndpointResult | null; running: boolean; large?: boolean }) {
   const t = useT();
   return (
     <div className="space-y-1">
       <div className="flex items-baseline justify-between">
-        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-          {r.stage === "t1" ? t("results.t1") : t("results.final")}
-        </span>
-        <span className={cn("readout font-semibold", compact ? "text-[13px]" : "text-lg")}>
-          {r.volume.toFixed(3)} <span className="text-[11px] font-normal text-muted-foreground">mL</span>
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{title}</span>
+        <span className={cn("readout font-semibold", large ? "text-lg" : "text-[13px]")}>
+          {r ? (
+            <>{r.volume.toFixed(3)} <span className="text-[11px] font-normal text-muted-foreground">mL</span></>
+          ) : (
+            <span className="font-normal text-muted-foreground/60">{running ? t("results.running") : "—"}</span>
+          )}
         </span>
       </div>
-      <div className="flex flex-wrap gap-1">
-        <Badge variant="outline" className={toneClass[methodTone(r.method)]}>{t(`method.${r.method}`)}</Badge>
-        <Badge variant="outline" className={toneClass[confidenceTone(r.confidence)]}>{t("results.confidence")}: {t(`confidence.${r.confidence}`)}</Badge>
-        <Badge variant="outline" className={toneClass[reliabilityTone(r.reliability)]}>{r.reliability}</Badge>
-      </div>
-      {!compact && (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 pt-0.5 text-[11px]">
-        <span className="text-muted-foreground">{t("results.potVol")}</span>
-        <span className="readout text-right">{r.potentialVolume?.toFixed(3) ?? "—"}</span>
-        <span className="text-muted-foreground">{t("results.specVol")}</span>
-        <span className="readout text-right">{r.spectralVolume?.toFixed(3) ?? "—"}</span>
-        {r.kf && (
-          <>
-            <span className="text-muted-foreground">{t("results.kf")}</span>
-            <span className="readout text-right">{r.kf.volume.toFixed(3)} ± {r.kf.std.toFixed(3)}</span>
-            <span className="text-muted-foreground">{t("results.kfNis")}</span>
-            <span className="readout text-right">{r.kf.nis.toFixed(2)}</span>
-          </>
-        )}
-        {r.refined !== null && (
-          <>
-            <span className="text-muted-foreground">{t("results.refined")}</span>
-            <span className="readout text-right">{r.refined.toFixed(3)}</span>
-          </>
-        )}
+      {r ? (
+        <div className="flex flex-wrap gap-1">
+          <Badge variant="outline" className={toneClass[methodTone(r.method)]}>{t(`method.${r.method}`)}</Badge>
+          <Badge variant="outline" className={toneClass[confidenceTone(r.confidence)]}>{t("results.confidence")}: {t(`confidence.${r.confidence}`)}</Badge>
+          <Badge variant="outline" className={toneClass[reliabilityTone(r.reliability)]}>{r.reliability}</Badge>
         </div>
+      ) : (
+        <Badge variant="outline" className="border-transparent bg-muted/40 font-normal text-muted-foreground/50">—</Badge>
       )}
+    </div>
+  );
+}
+
+/** 最终结果明细：五行常驻，数据未产生时 — 占位（保持骨架稳定） */
+function FinalDetail({ r }: { r: EndpointResult | null }) {
+  const t = useT();
+  const rows: Array<[string, string]> = [
+    [t("results.potVol"), r?.potentialVolume?.toFixed(3) ?? "—"],
+    [t("results.specVol"), r?.spectralVolume?.toFixed(3) ?? "—"],
+    [t("results.kf"), r?.kf ? `${r.kf.volume.toFixed(3)} ± ${r.kf.std.toFixed(3)}` : "—"],
+    [t("results.kfNis"), r?.kf ? r.kf.nis.toFixed(2) : "—"],
+    [t("results.refined"), r?.refined != null ? r.refined.toFixed(3) : "—"],
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
+      {rows.map(([k, v]) => (
+        <Fragment key={k}>
+          <span className="text-muted-foreground">{k}</span>
+          <span className={cn("readout text-right", v === "—" && "text-muted-foreground/60")}>{v}</span>
+        </Fragment>
+      ))}
     </div>
   );
 }
@@ -145,18 +153,17 @@ function ConcBlock() {
   const final = useStore((s) => s.final);
   const analysis = useStore((s) => s.analysis);
   const sampleVolume = useStore((s) => s.sampleVolume);
-  if (!final) return null;
-  const c = analyteConcentration(analysis, final.volume, sampleVolume);
+  const c = final ? analyteConcentration(analysis, final.volume, sampleVolume) : null;
   /* 计算式放入悬浮提示，原位显示浓度继承的终点置信度 */
-  const formula = `c = ${analysis.titrantConc} × ${final.volume.toFixed(3)} × (${analysis.analyteCoeff}/${analysis.titrantCoeff}) ÷ ${sampleVolume.toFixed(2)}`;
+  const formula = final && c !== null
+    ? `c = ${analysis.titrantConc} × ${final.volume.toFixed(3)} × (${analysis.analyteCoeff}/${analysis.titrantCoeff}) ÷ ${sampleVolume.toFixed(2)}`
+    : undefined;
   return (
     <>
       <Separator />
-      <div className="flex items-baseline justify-between" title={c === null ? undefined : formula}>
+      <div className="flex items-baseline justify-between" title={formula}>
         <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{t("results.concentration")}</span>
-        {c === null ? (
-          <span className="text-[11px] text-muted-foreground">{t("results.concPending")}</span>
-        ) : (
+        {final && c !== null ? (
           <span className="flex items-baseline gap-2">
             <Badge variant="outline" className={cn("text-[10px]", toneClass[confidenceTone(final.confidence)])}>
               {t("results.confidence")}: {t(`confidence.${final.confidence}`)}
@@ -165,6 +172,8 @@ function ConcBlock() {
               {c < 0.01 ? `${Number((c * 1000).toPrecision(3))} mmol/L` : `${Number(c.toPrecision(4))} mol/L`}
             </span>
           </span>
+        ) : (
+          <span className="text-[11px] text-muted-foreground/60">{final ? t("results.concPending") : "—"}</span>
         )}
       </div>
     </>
@@ -176,20 +185,59 @@ function ResultsPanel() {
   const t1 = useStore((s) => s.t1);
   const final = useStore((s) => s.final);
   const spectralState = useStore((s) => s.spectralState);
+  const workflow = useStore((s) => s.workflow);
+  const running = ["injecting", "titrating", "degree1", "titrating2"].includes(workflow);
   return (
-    <Card className="flex min-h-0 flex-1 flex-col">
-      <CardHeader className="flex-row items-center justify-between space-y-0 px-4 py-2.5">
+    <Card className="flex shrink-0 flex-col gap-0 pb-2 pt-2">
+      <CardHeader className="flex-row items-center justify-between space-y-0 px-3 py-1.5">
         <CardTitle className="text-[13px]">{t("results.title")}</CardTitle>
         <Badge variant="outline" className={cn("font-mono text-[10px]", toneClass[spectralState === "END_CONFIRMED" ? "ok" : spectralState === "IN_CHANGE" ? "warn" : "muted"])}>
           {t(`spectral.${spectralState}`)}
         </Badge>
       </CardHeader>
-      {/* 结果是一屏读完的读数，不做卡内滚动；空间分配见右列 flex 比例 */}
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-3">
-        {t1 ? <ResultBlock r={t1} compact={Boolean(final)} /> : <p className="text-xs text-muted-foreground">{t("results.pending")}</p>}
-        {t1 && final && <Separator />}
-        {final && <ResultBlock r={final} />}
+      {/* 固定渲染完成态骨架：数据未产生时 — / 进行中 占位，运行全程卡片高度不变 */}
+      <CardContent className="flex flex-col gap-2 px-3 pb-2">
+        <ResultBlock title={t("results.t1")} r={t1} running={running} />
+        <Separator />
+        <ResultBlock title={t("results.final")} r={final} running={running} large />
+        <FinalDetail r={final} />
         <ConcBlock />
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ---------------- 事件日志 ---------------- */
+
+const LOG_LEVEL_CLASS: Record<string, string> = {
+  ok: "text-[var(--status-ok)]",
+  warn: "text-[var(--status-warn)]",
+  error: "text-[var(--status-danger)]",
+};
+
+function EventLogPanel() {
+  const t = useT();
+  const logs = useStore((s) => s.logs);
+  return (
+    <Card className="flex min-h-0 flex-1 flex-col gap-0 pb-2 pt-2">
+      <CardHeader className="px-3 py-1.5">
+        <CardTitle className="text-[13px]">{t("log.title")}</CardTitle>
+      </CardHeader>
+      <CardContent className="min-h-0 flex-1 px-2 pb-2">
+        <ScrollArea className="h-full">
+          {/* 最新在上：运行中无需自动滚屏 */}
+          <div className="space-y-0.5 px-1 font-mono text-[11px] leading-relaxed">
+            {logs.length === 0 && <p className="text-muted-foreground">{t("log.empty")}</p>}
+            {[...logs].reverse().map((l, i) => (
+              <div key={`${l.t}-${i}`} className="flex gap-2">
+                <span className="shrink-0 text-muted-foreground/60">
+                  {new Date(l.t).toLocaleTimeString("zh-CN", { hour12: false })}
+                </span>
+                <span className={cn("min-w-0", LOG_LEVEL_CLASS[l.level])}>{l.text}</span>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
       </CardContent>
     </Card>
   );
@@ -269,7 +317,10 @@ export function TitrationPage() {
   const t = useT();
   const potPoints = useStore((s) => s.potPoints);
   const spectra = useStore((s) => s.spectra);
-  const hasData = potPoints.length > 0 || spectra.length > 0;
+  const liveTrace = useStore((s) => s.liveTrace);
+  const connected = useStore((s) => s.connected);
+  /* 已连接即视为"有内容"：待机阶段电位图呈现实时走条，不盖空态提示 */
+  const hasData = potPoints.length > 0 || spectra.length > 0 || (connected && liveTrace.length > 0);
 
   return (
     <div className="flex h-full flex-col gap-2.5 p-2.5">
@@ -279,7 +330,7 @@ export function TitrationPage() {
       <div className="flex min-h-0 flex-1 gap-3">
         {/* 左：图表列 */}
         <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <Card className="relative flex min-h-0 flex-[5] flex-col">
+          <Card className="relative flex min-h-0 flex-[5] flex-col gap-0 pb-2 pt-2">
             <CardHeader className="flex-row items-center justify-between space-y-0 px-2.5 py-1 pb-0.5">
               <CardTitle className="text-[13px]">{t("chart.potentialTitle")}</CardTitle>
               <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
@@ -293,25 +344,37 @@ export function TitrationPage() {
             </CardContent>
           </Card>
 
-          <Card className="relative flex min-h-0 flex-[4] flex-col">
+          <Card className="relative flex min-h-0 flex-[4] flex-col gap-0 pb-2 pt-2">
             <CardHeader className="px-2.5 py-1">
               <CardTitle className="text-[13px]">{t("chart.spectrumTitle")}</CardTitle>
             </CardHeader>
-            <CardContent className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
-              <div className="relative min-h-0 min-w-0 flex-[3] overflow-hidden rounded-sm bg-transparent">
-                <LatestSpectrum />
-                {!hasData && <EmptyHint />}
+            <CardContent className="flex min-h-0 flex-1 gap-2 px-2">
+              <div className="flex min-h-0 min-w-0 flex-[2] flex-col">
+                {/* 子图标题 + 图例跟随各自图表，不集中堆在卡片 header */}
+                <div className="flex shrink-0 items-center gap-3 pb-1 text-[10px] text-muted-foreground">
+                  <span className="font-medium">{t("chart.latest")}</span>
+                  <span className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[var(--curve-spectrum)]" />{t("chart.current")}</span>
+                  <span className="flex items-center gap-1.5"><span className="h-px w-4 border-t-2 border-dashed border-muted-foreground" />{t("chart.baseline")}</span>
+                </div>
+                <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-sm bg-transparent">
+                  <LatestSpectrum />
+                  {!hasData && <EmptyHint />}
+                </div>
               </div>
-              <div className="relative min-h-0 w-36 shrink-0 overflow-hidden rounded-sm bg-transparent">
-                <SpectrumHeatmap />
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <div className="shrink-0 pb-1 text-[10px] font-medium text-muted-foreground">{t("chart.jsTitle")}</div>
+                <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-sm bg-transparent">
+                  <JsDivergenceChart />
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* 右：结果面板（日志已移至维护页，此处独占整列） */}
-        <div className="flex w-80 shrink-0 flex-col gap-3">
+        {/* 右：终点结果 + 事件日志（日志曾经移至维护页，按信息密度需求回归主视图） */}
+        <div className="flex w-80 shrink-0 flex-col gap-2.5">
           <ResultsPanel />
+          <EventLogPanel />
         </div>
       </div>
     </div>

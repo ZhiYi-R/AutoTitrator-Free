@@ -4,7 +4,7 @@
  * 应用外壳：顶栏工具区 + 左侧导航 + 底部状态条。
  * 仪器布局原则：运行控制始终可见（顶栏），状态始终可见（底栏）。
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import {
   Activity,
@@ -62,6 +62,10 @@ const NAV: { id: PageId; icon: typeof Gauge; key: "nav.titration" | "nav.calibra
   { id: "settings", icon: Settings, key: "nav.settings" },
 ];
 
+/* 顶栏簇内单元格基础样式：无独立边框、嵌入簇容器 */
+const cellCls =
+  "h-full rounded-none border-0 py-0 shadow-none font-mono text-[12px] leading-[26px] focus-visible:z-10 focus-visible:ring-2 [&_[data-slot=select-value]]:h-full [&_[data-slot=select-value]]:leading-[26px]";
+
 function Led({ on, color = "ok" }: { on: boolean; color?: "ok" | "warn" | "danger" }) {
   const map = {
     ok: "bg-[var(--status-ok)] shadow-[0_0_6px_var(--status-ok)]",
@@ -74,6 +78,78 @@ function Led({ on, color = "ok" }: { on: boolean; color?: "ok" | "warn" | "dange
         "inline-block h-2 w-2 rounded-full transition-colors",
         on ? map[color] : "bg-[var(--led-off,var(--input))]"
       )}
+    />
+  );
+}
+
+/**
+ * 顶栏数字输入：本地草稿态，失焦/Enter 才校验提交。
+ * 方向键只移动光标（拦截 type=number 的原生步进行为）；提交非法值时回退。
+ */
+function ToolNumberInput({
+  value,
+  onCommit,
+  min,
+  max,
+  step,
+  integer = false,
+  width,
+  align = "right",
+  label,
+  disabled,
+}: {
+  value: number;
+  onCommit: (v: number) => void;
+  min: number;
+  max: number;
+  step?: number;
+  integer?: boolean;
+  width: string;
+  align?: "left" | "center" | "right";
+  label: string;
+  disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? String(value);
+
+  const commit = () => {
+    if (draft === null) return;
+    const n = integer ? Number.parseInt(draft, 10) : Number.parseFloat(draft);
+    if (Number.isFinite(n) && n >= min && n <= max) {
+      onCommit(integer ? Math.round(n) : n);
+    }
+    setDraft(null);
+  };
+
+  return (
+    <Input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={shown}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        /* 方向键还给光标；Enter 立即提交 */
+        if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+          e.preventDefault();
+          return;
+        }
+        if (e.key === "Enter") {
+          e.currentTarget.blur();
+        }
+      }}
+      className={cn(
+        cellCls,
+        `box-border h-full ${width} px-1.5 py-0 font-mono text-[12px] leading-[26px] md:text-[12px] md:leading-[26px]`,
+        "[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none",
+        align === "right" && "text-right",
+        align === "center" && "text-center",
+        "focus-visible:ring-0"
+      )}
+      aria-label={label}
     />
   );
 }
@@ -166,14 +242,12 @@ function ToolBar() {
   const canStart = connected && !running && !tubingOp;
   /* 簇底透明：嵌在卡片色工具条上时不再形成深色内陷块，只靠发丝边框分组 */
   const cluster = "flex h-7 items-stretch overflow-hidden rounded-sm border";
-  const cell =
-    "h-full rounded-none border-0 py-0 shadow-none font-mono text-[12px] leading-[26px] focus-visible:z-10 focus-visible:ring-2 [&_[data-slot=select-value]]:h-full [&_[data-slot=select-value]]:leading-[26px]";
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-card px-2">
       <div className={cluster} role="group" aria-label={t("toolbar.connection")}>
         <Select value={port} onValueChange={setPort} disabled={connected}>
-          <SelectTrigger size="sm" className={cn(cell, "h-full w-[132px] px-2 data-[size=sm]:h-full [&_svg]:size-3")}>
+          <SelectTrigger size="sm" className={cn(cellCls, "h-full w-[132px] px-2 data-[size=sm]:h-full [&_svg]:size-3")}>
             <SelectValue placeholder={ports.length ? t("toolbar.selectPort") : t("toolbar.noPorts")} />
           </SelectTrigger>
           <SelectContent className="min-w-[280px]">
@@ -191,7 +265,7 @@ function ToolBar() {
         </Select>
         <Separator orientation="vertical" />
         <Select value={String(baud)} onValueChange={(v) => setBaud(Number(v))} disabled={connected}>
-          <SelectTrigger size="sm" className={cn(cell, "h-full w-[78px] px-2 data-[size=sm]:h-full [&_svg]:size-3")}>
+          <SelectTrigger size="sm" className={cn(cellCls, "h-full w-[78px] px-2 data-[size=sm]:h-full [&_svg]:size-3")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -202,7 +276,7 @@ function ToolBar() {
         <Button
           size="sm"
           variant={connected ? "ghost" : "default"}
-          className={cn(cell, "gap-1.5 px-2.5")}
+          className={cn(cellCls, "gap-1.5 px-2.5")}
           disabled={connecting}
           onClick={() => (connected ? backend.disconnect() : backend.connect())}
         >
@@ -219,21 +293,15 @@ function ToolBar() {
         <span className="flex h-full items-center bg-muted/60 px-2 font-mono text-[12px] leading-[26px] text-muted-foreground whitespace-nowrap">
           {t("toolbar.sample")}
         </span>
-        <Input
-          type="number"
-          min={1}
+        <ToolNumberInput
+          value={sampleInput}
+          onCommit={setSampleInput}
+          min={0.1}
           max={50}
           step={0.5}
-          value={sampleInput}
+          width="w-[52px]"
+          label={t("toolbar.sample")}
           disabled={running}
-          onChange={(e) => setSampleInput(Number(e.target.value) || 0)}
-          className={cn(
-            cell,
-            "box-border h-full w-[52px] px-1.5 py-0 font-mono text-[12px] leading-[26px] md:text-[12px] md:leading-[26px]",
-            "[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none",
-            "text-right focus-visible:ring-0"
-          )}
-          aria-label={t("toolbar.sample")}
         />
         <span className="flex h-full items-center px-2 font-mono text-[12px] leading-[26px] text-muted-foreground">mL</span>
       </label>
@@ -242,20 +310,15 @@ function ToolBar() {
         <span className="flex h-full items-center bg-muted/60 px-2 font-mono text-[12px] leading-[26px] text-muted-foreground whitespace-nowrap">
           {t("toolbar.titrantConc")}
         </span>
-        <Input
-          type="number"
-          min={0}
-          step={0.001}
+        <ToolNumberInput
           value={analysis.titrantConc}
+          onCommit={(v) => setAnalysis({ titrantConc: v })}
+          min={0}
+          max={10}
+          step={0.001}
+          width="w-[68px]"
+          label={t("toolbar.titrantConc")}
           disabled={running}
-          onChange={(e) => setAnalysis({ titrantConc: Number(e.target.value) || 0 })}
-          className={cn(
-            cell,
-            "box-border h-full w-[68px] px-1.5 py-0 font-mono text-[12px] leading-[26px] md:text-[12px] md:leading-[26px]",
-            "[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none",
-            "text-right focus-visible:ring-0"
-          )}
-          aria-label={t("toolbar.titrantConc")}
         />
         <span className="flex h-full items-center px-1.5 font-mono text-[11px] leading-[26px] text-muted-foreground">mol/L</span>
         <Separator orientation="vertical" />
@@ -265,20 +328,16 @@ function ToolBar() {
         {(["analyteCoeff", "titrantCoeff"] as const).map((field, i) => (
           <span key={field} className="flex h-full items-center">
             {i === 1 && <span className="px-0.5 font-mono text-[12px] text-muted-foreground">∶</span>}
-            <Input
-              type="number"
-              min={1}
-              step={1}
+            <ToolNumberInput
               value={analysis[field]}
+              onCommit={(v) => setAnalysis({ [field]: v })}
+              min={1}
+              max={99}
+              integer
+              width="w-[36px]"
+              align="center"
+              label={`${t("toolbar.stoich")} ${i === 0 ? "a" : "b"}`}
               disabled={running}
-              onChange={(e) => setAnalysis({ [field]: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
-              className={cn(
-                cell,
-                "box-border h-full w-[36px] px-1 py-0 font-mono text-[12px] leading-[26px] md:text-[12px] md:leading-[26px]",
-                "[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none",
-                "text-center focus-visible:ring-0"
-              )}
-              aria-label={`${t("toolbar.stoich")} ${i === 0 ? "a" : "b"}`}
             />
           </span>
         ))}
@@ -287,7 +346,7 @@ function ToolBar() {
       <div className={cluster} role="group" aria-label={t("toolbar.start")}>
         <Button
           size="sm"
-          className={cn(cell, "gap-1 px-2.5 bg-primary text-[12px] text-primary-foreground hover:bg-primary/80")}
+          className={cn(cellCls, "gap-1 px-2.5 bg-primary text-[12px] text-primary-foreground hover:bg-primary/80")}
           disabled={!canStart}
           onClick={() => backend.start()}
         >
@@ -297,7 +356,7 @@ function ToolBar() {
         <Button
           size="sm"
           variant="ghost"
-          className={cn(cell, "gap-1 px-2.5 text-[12px]")}
+          className={cn(cellCls, "gap-1 px-2.5 text-[12px]")}
           disabled={!running && !tubingOp}
           onClick={() => tubingOp ? backend.stopTubing() : backend.manualStop()}
         >
@@ -307,7 +366,7 @@ function ToolBar() {
         <Button
           size="sm"
           variant="ghost"
-          className={cn(cell, "gap-1 px-2.5 text-[12px] text-[var(--status-warn)]")}
+          className={cn(cellCls, "gap-1 px-2.5 text-[12px] text-[var(--status-warn)]")}
           disabled={!running && !tubingOp}
           onClick={() => backend.abort()}
         >
