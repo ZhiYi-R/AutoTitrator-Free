@@ -60,6 +60,8 @@ export interface AppState {
   lang: Lang;
   page: PageId;
   navCollapsed: boolean;
+  /** 后端持久化的主题（快照恢复用，真实主题由 next-themes 管理） */
+  theme: string;
   connected: boolean;
   connecting: boolean;
   port: string;
@@ -126,6 +128,7 @@ const initial: Omit<AppState, "setLang" | "setPage" | "toggleNav" | "setPort" | 
   lang: "zh",
   page: "titration",
   navCollapsed: false,
+  theme: "dark",
   connected: false,
   connecting: false,
   port: "",
@@ -192,6 +195,22 @@ export function applyBackendSnapshot(snapshot: BackendSnapshot) {
       ? snapshot.port
       : snapshot.ports[0]?.portName ?? snapshot.port;
 
+  /* 待机实时走条：真实后端快照只带 lastE，前端按 ≥1s 间隔合成时间轴；
+     滴定数据（体积轴）产生后即让位清空 */
+  const prevLive = useStore.getState().liveTrace;
+  const standbyLive =
+    snapshot.connected &&
+    snapshot.potPoints.length === 0 &&
+    snapshot.spectra.length === 0 &&
+    (snapshot.workflow === "idle" || snapshot.workflow === "injecting") &&
+    snapshot.lastE !== null;
+  const now = Date.now();
+  const liveTrace = standbyLive
+    ? prevLive.length && now - prevLive[prevLive.length - 1].t < 1000
+      ? prevLive
+      : [...prevLive, { t: now, e: snapshot.lastE as number }].slice(-240)
+    : [];
+
   useStore.setState({
     ports: snapshot.ports,
     connected: snapshot.connected,
@@ -215,6 +234,7 @@ export function applyBackendSnapshot(snapshot: BackendSnapshot) {
     pumpR2: snapshot.pumpR2,
     calPoints: snapshot.calPoints,
     potPoints: snapshot.potPoints,
+    liveTrace,
     spectra: snapshot.spectra,
     spectralState: snapshot.spectralState as SpectralState,
     lastE: snapshot.lastE,
@@ -223,6 +243,8 @@ export function applyBackendSnapshot(snapshot: BackendSnapshot) {
     final: endpoint(snapshot.finalResult),
     watchdogEnabled: snapshot.watchdogEnabled,
     detection: snapshot.detection,
+    dataDir: snapshot.dataDir,
+    theme: snapshot.theme,
     rx: snapshot.rx,
     tx: snapshot.tx,
     badFrames: snapshot.badFrames,
@@ -255,6 +277,8 @@ export const useStore = create<AppState>()((set, get) => ({
   setScenario: (scenario) => set({ scenario }),
   setSpeed: (speed) => set({ speed }),
   setTubingPumps: (tubingP1, tubingP2) => {
+    /* 至少一台泵：最后一台不可取消（UI 层 chip 已禁用，此处兜底） */
+    if (!tubingP1 && !tubingP2) return;
     set({ tubingP1, tubingP2 });
     void backend.setTubingPumps(tubingP1, tubingP2);
   },

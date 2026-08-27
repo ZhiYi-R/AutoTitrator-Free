@@ -50,6 +50,7 @@ const dict = {
   "tubing.hintPrime": { zh: "入口放入对应液体，无气泡后停止", en: "Inlet in liquid; stop when bubble-free" },
   "tubing.hintEmpty": { zh: "出口放入废液杯，管内排空后停止", en: "Outlet to waste; stop when empty" },
   "tubing.running": { zh: "管路运行中，观察后停止", en: "Tubing running — watch, then stop" },
+  "tubing.keepOne": { zh: "至少保留一台泵", en: "Keep at least one pump" },
 
   "scenario.normal": { zh: "正常滴定", en: "Normal" },
   "scenario.noisy": { zh: "弱信号（高噪声）", en: "Noisy signal" },

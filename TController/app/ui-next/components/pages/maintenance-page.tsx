@@ -135,7 +135,8 @@ function WatchdogCard() {
 function DeviceInfo() {
   const t = useT();
   const { rx, tx, badFrames, heartbeatTick, connected } = useStore();
-  const uptime = Math.floor(heartbeatTick * 2);
+  /* heartbeatTick 为固件 uptime 秒计数（真实后端由 ms 归一，mock 每秒 +1） */
+  const uptime = heartbeatTick;
   const facts = [
     [t("maint.firmware"), "v1.4.2"],
     [t("maint.mcu"), "STM32F103C8T6 · Cortex-M3 @ 72 MHz"],

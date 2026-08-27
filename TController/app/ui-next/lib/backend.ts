@@ -37,6 +37,7 @@ export interface BackendSnapshot {
     overTitrate: number;
     consensusTol: number;
   };
+  dataDir: string;
   rx: number;
   tx: number;
   badFrames: number;

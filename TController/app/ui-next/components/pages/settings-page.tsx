@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useStore } from "@/lib/store";
 import type { DetectionParams } from "@/lib/store";
+import { backend } from "@/lib/backend";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -79,7 +80,7 @@ function SystemCard() {
   /* 浏览文件夹：Tauri 对接 dialog.open；浏览器 mock 无法弹系统对话框，保持当前值 */
   const browsePath = async () => {
     const api = (globalThis as { __TAURI__?: { dialog?: { open?: (opts: { directory: boolean }) => Promise<string | null> } } }).__TAURI__;
-    const picked = await api?.dialog?.open({ directory: true });
+    const picked = await api?.dialog?.open?.({ directory: true });
     if (typeof picked === "string" && picked) setDataDir(picked);
   };
 
@@ -95,7 +96,10 @@ function SystemCard() {
         <Row label={t("settings.theme")}>
           <Segment
             value={(theme ?? "dark") as "light" | "dark" | "system"}
-            onChange={setTheme}
+            onChange={(id) => {
+              setTheme?.(id);
+              void backend.setUiSettings({ theme: id });
+            }}
             options={THEMES.map(({ id, icon, key }) => ({ id, icon, label: t(key) }))}
           />
         </Row>

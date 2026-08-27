@@ -5,7 +5,6 @@
  * 纯 Canvas 绘制（灰阶配色，主题自适应），可承载数千点实时追加。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useTheme } from "next-themes";
 import { useStore } from "@/lib/store";
 import { cssVar, fmt, niceTicks, setupCanvas, thinTicks } from "@/lib/chart-utils";
 
@@ -18,7 +17,6 @@ export function PotentialChart() {
   const liveTrace = useStore((s) => s.liveTrace);
   const t1 = useStore((s) => s.t1);
   const final = useStore((s) => s.final);
-  const { resolvedTheme } = useTheme();
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [hoverX, setHoverX] = useState<number | null>(null);
 
@@ -317,7 +315,7 @@ export function PotentialChart() {
         ctx.fillText(label, bx + 6, M.t + 28);
       }
     }
-  }, [potPoints, deriv, t1, final, size, hoverX, resolvedTheme, drawLive]);
+  }, [potPoints, deriv, t1, final, size, hoverX, drawLive]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(draw);

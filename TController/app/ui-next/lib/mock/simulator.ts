@@ -61,6 +61,7 @@ let elapsedTimer: ReturnType<typeof setInterval> | null = null;
 let injectionTimer: ReturnType<typeof setInterval> | null = null;
 let phaseTimer: ReturnType<typeof setTimeout> | null = null;
 let liveTimer: ReturnType<typeof setInterval> | null = null;
+let tubingTimer: ReturnType<typeof setInterval> | null = null;
 
 let cfg: ScenarioCfg = SCENARIOS.normal;
 let maxDerivVol = 0;
@@ -74,7 +75,8 @@ function clearTimers() {
   if (injectionTimer) clearInterval(injectionTimer);
   if (phaseTimer) clearTimeout(phaseTimer);
   if (elapsedTimer) clearInterval(elapsedTimer);
-  tickTimer = injectionTimer = elapsedTimer = phaseTimer = null;
+  if (tubingTimer) clearInterval(tubingTimer);
+  tickTimer = injectionTimer = elapsedTimer = phaseTimer = tubingTimer = null;
 }
 
 /**
@@ -440,11 +442,23 @@ export const backend = {
       tx: st.tx + pumps.length,
     });
     log("info", op === "prime" ? "log.primeStart" : "log.emptyStart", { p: pumps.join("+") });
+    /* 管路步进累计：1000 步/秒/泵（与固件 PUMP_STEP_FREQ 一致） */
+    if (tubingTimer) clearInterval(tubingTimer);
+    tubingTimer = setInterval(() => {
+      const s = useStore.getState();
+      if (!s.tubingOp) return;
+      useStore.setState({
+        pump1Steps: s.tubingP1 ? s.pump1Steps + 250 : s.pump1Steps,
+        pump2Steps: s.tubingP2 ? s.pump2Steps + 250 : s.pump2Steps,
+      });
+    }, 250);
   },
   stopTubing() {
     const st = useStore.getState();
     if (!st.tubingOp) return;
     const op = st.tubingOp;
+    if (tubingTimer) clearInterval(tubingTimer);
+    tubingTimer = null;
     useStore.setState({ tubingOp: null, pump1Running: false, pump2Running: false, tx: st.tx + 1 });
     log("ok", op === "prime" ? "log.primeStop" : "log.emptyStop");
   },

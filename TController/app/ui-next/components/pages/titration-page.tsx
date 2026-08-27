@@ -34,7 +34,12 @@ function Stepper() {
   const pumpIntercept = useStore((s) => s.pumpIntercept);
   const errIdx = workflow === "error" ? FLOW.indexOf("titrating") : -1;
   const activeIdx = workflow === "error" ? 1 : workflow === "idle" || tubingOp ? -1 : FLOW.indexOf(workflow);
-  const injectionVolume = pumpSlope > 0 ? Math.max(0, pump1Steps / pumpSlope + pumpIntercept) : null;
+  /* 管路作业期间 pump1Steps 是预充/排空步数，不属于进样体积 */
+  const injectionVolume = tubingOp
+    ? null
+    : pumpSlope > 0
+      ? Math.max(0, pump1Steps / pumpSlope + pumpIntercept)
+      : null;
   const injectionProgress = injectionVolume !== null && sampleInput > 0
     ? Math.min(100, Math.max(0, (injectionVolume / sampleInput) * 100))
     : null;
@@ -249,17 +254,20 @@ function PumpChip({
   label,
   checked,
   disabled,
+  title,
   onChange,
 }: {
   label: string;
   checked: boolean;
   disabled: boolean;
+  title?: string;
   onChange: (v: boolean) => void;
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
+      title={title}
       onClick={() => onChange(!checked)}
       className={cn(
         "h-7 rounded-sm border px-2 text-[11px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
@@ -278,23 +286,54 @@ function TubingBar() {
   const tubingOp = useStore((s) => s.tubingOp);
   const p1 = useStore((s) => s.tubingP1);
   const p2 = useStore((s) => s.tubingP2);
+  const pump1Steps = useStore((s) => s.pump1Steps);
+  const pump2Steps = useStore((s) => s.pump2Steps);
+  const pumpSlope = useStore((s) => s.pumpSlope);
   const setTubingPumps = useStore((s) => s.setTubingPumps);
   const titrating = ["injecting", "titrating", "degree1", "titrating2"].includes(workflow);
   const busy = titrating || Boolean(tubingOp);
   const canPrime = connected && !busy;
   const canEmpty = connected && !titrating && !tubingOp && (workflow === "done" || workflow === "idle");
+  /* 管路已排体积：独立读数，不进滴定剂体积账户 */
+  const toMl = (steps: number) => (pumpSlope > 0 ? steps / pumpSlope : 0);
 
   return (
     <div className="flex h-10 shrink-0 flex-wrap items-center gap-2 overflow-x-auto rounded-sm border bg-card px-3">
       <span className="flex items-center gap-1.5 text-[12px] font-medium whitespace-nowrap">
         <Droplets size={13} /> {t("tubing.prime")} / {t("tubing.empty")}
       </span>
-      <PumpChip label={t("tubing.p1")} checked={p1} disabled={busy} onChange={(v) => setTubingPumps(v, p2)} />
-      <PumpChip label={t("tubing.p2")} checked={p2} disabled={busy} onChange={(v) => setTubingPumps(p1, v)} />
+      <PumpChip
+        label={t("tubing.p1")}
+        checked={p1}
+        disabled={busy || (p1 && !p2)}
+        title={busy ? undefined : p1 && !p2 ? t("tubing.keepOne") : undefined}
+        onChange={(v) => setTubingPumps(v, p2)}
+      />
+      <PumpChip
+        label={t("tubing.p2")}
+        checked={p2}
+        disabled={busy || (p2 && !p1)}
+        title={busy ? undefined : p2 && !p1 ? t("tubing.keepOne") : undefined}
+        onChange={(v) => setTubingPumps(p1, v)}
+      />
       <Separator orientation="vertical" className="h-5" />
       {tubingOp ? (
         <>
-          <span className="text-[11px] text-[var(--status-ok)]">{t("tubing.running")}</span>
+          <Separator orientation="vertical" className="h-5" />
+          {/* 运行态：读数格替代文字句（状态本身由底栏呈现） */}
+          {p1 && (
+            <span className="flex h-7 items-center gap-1.5 rounded-sm border bg-muted/40 px-2">
+              <span className="text-[10px] tracking-wide text-muted-foreground uppercase">{t("tubing.p1")}</span>
+              <span className="readout text-[12px] tabular-nums">{toMl(pump1Steps).toFixed(2)} <span className="text-[10px] font-normal text-muted-foreground">mL</span></span>
+            </span>
+          )}
+          {p2 && (
+            <span className="flex h-7 items-center gap-1.5 rounded-sm border bg-muted/40 px-2">
+              <span className="text-[10px] tracking-wide text-muted-foreground uppercase">{t("tubing.p2")}</span>
+              <span className="readout text-[12px] tabular-nums">{toMl(pump2Steps).toFixed(2)} <span className="text-[10px] font-normal text-muted-foreground">mL</span></span>
+            </span>
+          )}
+          <div className="flex-1" />
           <Button size="sm" variant="outline" className="h-7 rounded-sm" onClick={() => backend.stopTubing()}>
             {t("tubing.stop")}
           </Button>

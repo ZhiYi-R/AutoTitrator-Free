@@ -4,7 +4,7 @@
  * 应用外壳：顶栏工具区 + 左侧导航 + 底部状态条。
  * 仪器布局原则：运行控制始终可见（顶栏），状态始终可见（底栏）。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import {
   Activity,
@@ -498,6 +498,7 @@ export function AppShell() {
   }, []);
   return (
     <div className="flex h-screen flex-col overflow-hidden">
+      <ThemeSync />
       <TitleBar />
       <ToolBar />
       <div className="flex min-h-0 flex-1">
@@ -513,4 +514,21 @@ export function AppShell() {
       <StatusBar />
     </div>
   );
+}
+
+/**
+ * 主题恢复：仅 Tauri 下把后端持久化的 theme 应用一次（next-themes 本地
+ * localStorage 仍是日常主题源，后端值只负责跨设备/重装恢复）。
+ */
+function ThemeSync() {
+  const { setTheme } = useTheme();
+  const theme = useStore((s) => s.theme);
+  const applied = useRef(false);
+  useEffect(() => {
+    if (applied.current || !theme) return;
+    if (!(globalThis as { __TAURI__?: unknown }).__TAURI__) return;
+    applied.current = true;
+    if (theme === "light" || theme === "dark" || theme === "system") setTheme?.(theme);
+  }, [theme, setTheme]);
+  return null;
 }
