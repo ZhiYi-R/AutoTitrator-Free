@@ -69,6 +69,8 @@ pub struct BackendSettings {
     pub sample_input: f64,
     pub tubing_p1: bool,
     pub tubing_p2: bool,
+    /// 实验数据（运行 CSV/导出）保存目录
+    pub data_dir: String,
 }
 
 impl Default for BackendSettings {
@@ -85,6 +87,7 @@ impl Default for BackendSettings {
             sample_input: 10.0,
             tubing_p1: true,
             tubing_p2: true,
+            data_dir: "D:\\AutoTitrator\\Data".into(),
         }
     }
 }
@@ -168,6 +171,7 @@ pub struct BackendSnapshot {
     pub final_result: Option<EndpointSnapshot>,
     pub watchdog_enabled: bool,
     pub detection: DetectionParams,
+    pub data_dir: String,
     pub rx: u64,
     pub tx: u64,
     pub bad_frames: u64,
@@ -203,6 +207,7 @@ pub struct UiSettingsPatch {
     pub lang: Option<String>,
     pub theme: Option<String>,
     pub nav_collapsed: Option<bool>,
+    pub data_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -241,10 +246,11 @@ pub struct BackendRuntime {
     last_poll: Instant,
     last_heartbeat: Instant,
     last_e: Option<f64>,
-    last_deriv: Option<f64>,
-    spectral_state: String,
     pot_points: Vec<PotentialPoint>,
     spectra: Vec<SpectrumFrame>,
+    /// 注入看门狗：上次泵 1 位置与无进度起始时刻
+    last_inject_pos: u32,
+    inject_stall_since: Option<Instant>,
     t1: Option<EndpointSnapshot>,
     final_result: Option<EndpointSnapshot>,
     logs: Vec<LogEntry>,
@@ -322,10 +328,10 @@ impl BackendRuntime {
             last_poll: Instant::now(),
             last_heartbeat: Instant::now(),
             last_e: None,
-            last_deriv: None,
-            spectral_state: "IDLE".into(),
             pot_points: Vec::new(),
             spectra: Vec::new(),
+            last_inject_pos: 0,
+            inject_stall_since: None,
             t1: None,
             final_result: None,
             logs: Vec::new(),
@@ -491,13 +497,37 @@ impl BackendRuntime {
             self.last_heartbeat = now;
             self.tx += 1;
         }
-        if self.run_started.is_some() {
-            self.elapsed_ms = now.duration_since(self.run_started.unwrap()).as_millis() as u64;
+        if let Some(start) = self.run_started {
+            self.elapsed_ms = now.duration_since(start).as_millis() as u64;
         }
         if now.duration_since(self.last_poll) >= Duration::from_millis(500) {
             self.last_poll = now;
             let outcome = self.workflow.poll();
             self.apply_outcome(outcome);
+        }
+        /* 注入看门狗：进样中泵 1 位置 20s 无进度（上行帧无重传，PumpDone
+           丢失会让工作流永久卡在 Injecting）→ 判定堵转/失联并急停 */
+        if self.workflow.state == TitrationState::Injecting && self.pump1_running {
+            if self.pump1_steps != self.last_inject_pos {
+                self.last_inject_pos = self.pump1_steps;
+                self.inject_stall_since = None;
+            } else {
+                let since = *self.inject_stall_since.get_or_insert(now);
+                if now.duration_since(since) >= Duration::from_secs(20) {
+                    self.inject_stall_since = None;
+                    if self.connected {
+                        self.send_pump_command(PumpCommand::FreeStop(0xff));
+                    }
+                    let mut outcome = self.workflow.abort();
+                    outcome.state = TitrationState::Error;
+                    self.apply_outcome(outcome);
+                    self.run_started = None;
+                    self.persist_history(true);
+                    self.log("error", "进样泵 20s 无进度，疑似堵转或通信丢失，已急停");
+                }
+            }
+        } else {
+            self.inject_stall_since = None;
         }
     }
 
@@ -544,16 +574,23 @@ impl BackendRuntime {
                     .run_started
                     .map(|start| start.elapsed().as_secs_f64())
                     .unwrap_or(0.0);
-                self.pot_points.push(PotentialPoint {
-                    v: self.volume,
-                    t,
-                    e: voltage,
-                });
-                if self.pot_points.len() > 6000 {
-                    let excess = self.pot_points.len() - 6000;
-                    self.pot_points.drain(0..excess);
+                /* 仅运行期间入列：待机/连接空闲的采样只更新 last_e，
+                   否则 v=0 的噪声点会堆积并污染曲线起点 */
+                if self.run_started.is_some() {
+                    self.pot_points.push(PotentialPoint {
+                        v: self.volume,
+                        t,
+                        e: voltage,
+                    });
+                    if self.pot_points.len() > 6000 {
+                        let excess = self.pot_points.len() - 6000;
+                        self.pot_points.drain(0..excess);
+                    }
                 }
-                self.workflow.on_adc(position, t, voltage);
+                /* 同理：进样期是残留零点、管路期是冲洗量——都不进检测器/运行体积 */
+                if self.workflow.state != TitrationState::Injecting && self.tubing_op.is_none() {
+                    self.workflow.on_adc(position, t, voltage);
+                }
             }
             Event::Spectral(values) => {
                 self.rx += 1;
@@ -564,18 +601,21 @@ impl BackendRuntime {
                     .and_then(|reconstructor| reconstructor.reconstruct(&raw).ok())
                     .map(|(_, values)| downsample_spectrum(&values))
                     .unwrap_or_else(|| raw.clone());
-                self.spectra.push(SpectrumFrame {
-                    v: self.volume,
-                    absorbance: spectrum.clone(),
-                });
-                if self.spectra.len() > 2000 {
-                    let excess = self.spectra.len() - 2000;
-                    self.spectra.drain(0..excess);
+                if self.run_started.is_some() {
+                    self.spectra.push(SpectrumFrame {
+                        v: self.volume,
+                        absorbance: spectrum.clone(),
+                    });
+                    if self.spectra.len() > 2000 {
+                        let excess = self.spectra.len() - 2000;
+                        self.spectra.drain(0..excess);
+                    }
                 }
                 self.workflow.on_spectrum(&raw);
             }
             Event::Heartbeat(uptime) => {
-                self.heartbeat_tick = uptime as u64;
+                /* 固件上报 uptime_ms；统一为秒计数（mock 同语义） */
+                self.heartbeat_tick = uptime as u64 / 1000;
                 self.rx += 1;
             }
         }
@@ -585,6 +625,13 @@ impl BackendRuntime {
         if pump == 1 {
             self.pump1_steps = position;
         } else if pump == 2 {
+            /* 进样/管路作业期间泵 2 静止或在做预充——上报计数不是本次滴定的
+               体积零点，运行体积账户冻结（原始步数照记，供管路已排体积显示）：
+               - Injecting：上报的是上次运行的残留计数
+               - 管路作业：排出的是预充/排空冲洗量，不属于滴定剂体积 */
+            if self.workflow.state == TitrationState::Injecting || self.tubing_op.is_some() {
+                return;
+            }
             self.pump2_steps = position;
             self.volume = self.calibration.volume_from_steps(position).max(0.0);
         }
@@ -645,6 +692,12 @@ impl BackendRuntime {
         if !self.connected {
             return Err("请先连接设备".into());
         }
+        if self.tubing_op.is_some() {
+            return Err("管路作业进行中".into());
+        }
+        if self.workflow.can_manual_stop() {
+            return Err("滴定进行中".into());
+        }
         self.clear_run();
         self.run_started = Some(Instant::now());
         let outcome = self.workflow.start(self.sample_input);
@@ -663,9 +716,9 @@ impl BackendRuntime {
         self.t1 = None;
         self.final_result = None;
         self.last_e = None;
-        self.last_deriv = None;
-        self.spectral_state = "IDLE".into();
         self.run_started = None;
+        self.last_inject_pos = 0;
+        self.inject_stall_since = None;
         let outcome = self.workflow.abort();
         self.apply_outcome(outcome);
     }
@@ -770,13 +823,15 @@ impl BackendRuntime {
             cal_points: self.points.clone(),
             pot_points: self.pot_points.clone(),
             spectra: self.spectra.clone(),
-            spectral_state: self.spectral_state.clone(),
+            /* 诊断字段从检测器现算，避免快照字段与引擎内部状态脱节 */
+            spectral_state: self.workflow.detector.spectral_state().as_str().into(),
             last_e: self.last_e,
-            last_deriv: self.last_deriv,
+            last_deriv: Some(self.workflow.detector.last_potential_derivative()),
             t1: self.t1.clone(),
             final_result: self.final_result.clone(),
             watchdog_enabled: self.settings.watchdog_enabled,
             detection: self.settings.detection.clone(),
+            data_dir: self.settings.data_dir.clone(),
             rx: self.rx,
             tx: self.tx,
             bad_frames: self.bad_frames,
@@ -872,6 +927,9 @@ pub fn set_ui_settings(runtime: &mut BackendRuntime, patch: UiSettingsPatch) {
     }
     if let Some(value) = patch.nav_collapsed {
         runtime.settings.nav_collapsed = value;
+    }
+    if let Some(value) = patch.data_dir {
+        runtime.settings.data_dir = value;
     }
     runtime.save_settings();
 }
