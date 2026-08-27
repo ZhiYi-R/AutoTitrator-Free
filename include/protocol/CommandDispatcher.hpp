@@ -124,7 +124,11 @@ private:
                 if (len < 5) { sendNak(cmd); break; }
                 uint8_t id = param[0];
                 uint32_t cnt = readU32(param + 1);
-                if (id == 1) Device::PumpMotor1::start(Device::PumpMode::MaxCount, cnt);
+                if (id == 1) {
+                    Device::PumpMotor1::start(Device::PumpMode::MaxCount, cnt);
+                    /** 进样开始即清零滴定泵计数：其残留值会让体积从上次终点起步 */
+                    Device::PumpMotor2::resetPosition();
+                }
                 else if (id == 2) Device::PumpMotor2::start(Device::PumpMode::MaxCount, cnt);
                 else { sendNak(cmd); break; }
                 sendAck(cmd);
