@@ -59,7 +59,7 @@ impl RobustStats {
     pub fn mad_sigma(&self) -> Option<f64> {
         let med = self.median()?;
         let mut dev: Vec<f64> = self.buf.iter().map(|&x| (x - med).abs()).collect();
-        robust_median(&dev.as_mut_slice())
+        robust_median(dev.as_mut_slice())
             .map(|m| m * 1.4826)
             .filter(|s| *s > 1e-30)
     }

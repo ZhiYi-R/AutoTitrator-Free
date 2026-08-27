@@ -512,7 +512,6 @@ impl EndpointDetector {
     /// 导数保持上一值（与光谱通道的体积锚定语义一致）；
     /// 非单调体积同样保持并计数。时间参数仅用于兼容签名。
     pub fn feed_potential(&mut self, vol: f64, _t: f64, v: f64) {
-        let vol = vol;
         let v_sm = self.pot_v_smooth.push(v);
 
         // 体积域差分:重复/非单调体积 → hold(推入当前电平即无操作)。

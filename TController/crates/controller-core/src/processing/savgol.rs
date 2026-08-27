@@ -55,6 +55,8 @@ pub fn savgol_filter(signal: &[f64], window: usize, order: usize) -> Result<Vec<
 }
 
 /// 高斯消元（部分主元）解小型稠密线性方程组。
+/// 行列双下标的教科书式二维消元，保留 range 循环写法。
+#[allow(clippy::needless_range_loop)]
 fn solve_linear(a: &mut [Vec<f64>], mut b: Vec<f64>) -> Option<Vec<f64>> {
     let n = a.len();
     for col in 0..n {

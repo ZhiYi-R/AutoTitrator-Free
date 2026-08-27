@@ -232,6 +232,25 @@ impl Default for SpectralFeatureTracker {
     }
 }
 
+/// 事件重选：永久变色优先，其次峰速最快。
+fn pick_best(events: &[ExcursionEvent]) -> Option<ExcursionEvent> {
+    let mut best: Option<ExcursionEvent> = None;
+    for e in events {
+        let take = match best {
+            None => true,
+            Some(b) => match (e.permanent.unwrap_or(false), b.permanent.unwrap_or(false)) {
+                (true, false) => true,
+                (false, true) => false,
+                _ => e.peak_speed > b.peak_speed,
+            },
+        };
+        if take {
+            best = Some(*e);
+        }
+    }
+    best
+}
+
 impl SpectralFeatureTracker {
     pub fn new() -> Self {
         // 生产默认:与 endpoint.rs 共享同一组常数(此前此处是独立字面量,
@@ -598,24 +617,7 @@ impl SpectralFeatureTracker {
     /// 在已注册事件中重选 winner(追溯降级后调用)。
     /// 规则与提交时一致:永久层优先,层内峰值最强者;无事件则清空。
     fn reelect_best_event(&mut self) {
-        let pick = |events: &[ExcursionEvent]| -> Option<ExcursionEvent> {
-            let mut best: Option<ExcursionEvent> = None;
-            for e in events {
-                let take = match best {
-                    None => true,
-                    Some(b) => match (e.permanent.unwrap_or(false), b.permanent.unwrap_or(false)) {
-                        (true, false) => true,
-                        (false, true) => false,
-                        _ => e.peak_speed > b.peak_speed,
-                    },
-                };
-                if take {
-                    best = Some(*e);
-                }
-            }
-            best
-        };
-        self.best_event = pick(&self.events);
+        self.best_event = pick_best(&self.events);
     }
 
     /// 追溯复评:用**当前**安静段 base_js 中位水平,按事件提交时的
@@ -635,15 +637,21 @@ impl SpectralFeatureTracker {
         };
         let base_th = self.base_th();
         let demote =
-            |e: &mut ExcursionEvent| match (e.permanent, e.pre_level) {
-                (Some(true), Some(pre)) => {
-                    // permanence_from 的内联版(closure 里不能借 self)。
-                    if !(current >= pre * RECOVERY_GAP_RATIO + base_th) {
-                        e.permanent = Some(false);
-                        e.residual_gap = Some(current - pre);
+            |e: &mut ExcursionEvent| {
+                // permanence_from 的内联版(closure 里不能借 self)。
+                // `!(...)` 保留:NaN 比较为 false → 取反后按"未恢复"降级,与原实现一致。
+                #[allow(clippy::neg_cmp_op_on_partial_ord)]
+                let demoted = match (e.permanent, e.pre_level) {
+                    (Some(true), Some(pre)) => {
+                        let stuck = !(current >= pre * RECOVERY_GAP_RATIO + base_th);
+                        stuck.then_some(current - pre)
                     }
+                    _ => None,
+                };
+                if let Some(residual_gap) = demoted {
+                    e.permanent = Some(false);
+                    e.residual_gap = Some(residual_gap);
                 }
-                _ => {}
             };
         for e in self.events.iter_mut() {
             demote(e);
@@ -656,7 +664,6 @@ impl SpectralFeatureTracker {
     /// 消费一帧光谱，返回因果诊断。
     pub fn update(&mut self, volume: f64, spectrum: &[f64]) -> Diagnostics {
         self.frame_count += 1;
-        let volume = volume;
 
         let normalized = match finite_vector(spectrum) {
             Ok(n) => n,
