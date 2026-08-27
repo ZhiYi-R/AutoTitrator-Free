@@ -1,4 +1,6 @@
-use std::fs;
+use chrono::Local;
+use std::fs::{self, File, OpenOptions};
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -192,6 +194,105 @@ pub struct BackendInfo {
     pub ports: Vec<PortInfo>,
 }
 
+/// 单次运行的流式 CSV 写入器：按阶段/模态拆四个文件，逐帧追加落盘，
+/// 故障时已写行不受内存状态影响。列格式与 `replay_csv` 兼容：
+/// 电位 `volume_mL,time_s,potential_V,dE_dV`；光谱 `volume_mL,time_s,ch0..ch9`。
+struct RunCsvWriters {
+    dir: PathBuf,
+    intake_pot: Option<BufWriter<File>>,
+    intake_spec: Option<BufWriter<File>>,
+    titr_pot: Option<BufWriter<File>>,
+    titr_spec: Option<BufWriter<File>>,
+}
+
+const SPECTRUM_HEADER: &str = "volume_mL,time_s,ch0,ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,ch9";
+const POTENTIAL_HEADER: &str = "volume_mL,time_s,potential_V,dE_dV";
+
+impl RunCsvWriters {
+    fn new(dir: PathBuf) -> Self {
+        Self {
+            dir,
+            intake_pot: None,
+            intake_spec: None,
+            titr_pot: None,
+            titr_spec: None,
+        }
+    }
+
+    /// 惰性打开对应阶段/模态的流；空文件补表头（追加模式不重复表头）。
+    fn stream(&mut self, intake: bool, spectral: bool) -> std::io::Result<&mut BufWriter<File>> {
+        let (slot, file_name, desc, header) = match (intake, spectral) {
+            (true, false) => (
+                &mut self.intake_pot,
+                "IntakingPotential.csv",
+                "电位数据（进样阶段）",
+                POTENTIAL_HEADER,
+            ),
+            (false, false) => (
+                &mut self.titr_pot,
+                "TitratingPotential.csv",
+                "电位数据（滴定阶段）",
+                POTENTIAL_HEADER,
+            ),
+            (true, true) => (
+                &mut self.intake_spec,
+                "IntakingSpectrum.csv",
+                "光谱原始数据（进样阶段）",
+                SPECTRUM_HEADER,
+            ),
+            (false, true) => (
+                &mut self.titr_spec,
+                "TitratingSpectrum.csv",
+                "光谱原始数据（滴定阶段）",
+                SPECTRUM_HEADER,
+            ),
+        };
+        if slot.is_none() {
+            /* 目录缺失时自愈（运行中被清理/盘符变更等） */
+            fs::create_dir_all(&self.dir)?;
+            let path = self.dir.join(file_name);
+            let file = OpenOptions::new().create(true).append(true).open(&path)?;
+            let mut writer = BufWriter::new(file);
+            if writer.get_ref().metadata()?.len() == 0 {
+                use std::io::Write as _;
+                writeln!(writer, "# AutoTitrator {desc}")?;
+                writeln!(writer, "# 数据目录: {}", self.dir.file_name().unwrap_or_default().to_string_lossy())?;
+                writeln!(writer, "{header}")?;
+            }
+            *slot = Some(writer);
+        }
+        Ok(slot.as_mut().expect("slot 刚初始化"))
+    }
+
+    fn append_potential(&mut self, intake: bool, t: f64, v: f64, e: f64, deriv: f64) -> std::io::Result<()> {
+        use std::io::Write as _;
+        writeln!(
+            self.stream(intake, false)?,
+            "{v:.6},{t:.3},{e:.6},{deriv:.6}"
+        )
+    }
+
+    fn append_spectrum(&mut self, intake: bool, t: f64, v: f64, raw: &[u16; 10]) -> std::io::Result<()> {
+        use std::io::Write as _;
+        let writer = self.stream(intake, true)?;
+        write!(writer, "{v:.6},{t:.3}")?;
+        for value in raw {
+            write!(writer, ",{value}")?;
+        }
+        writeln!(writer)
+    }
+
+    fn flush_all(&mut self) {
+        use std::io::Write as _;
+        for writer in [&mut self.intake_pot, &mut self.intake_spec, &mut self.titr_pot, &mut self.titr_spec]
+            .into_iter()
+            .flatten()
+        {
+            let _ = writer.flush();
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetectionPatch {
@@ -248,6 +349,8 @@ pub struct BackendRuntime {
     last_e: Option<f64>,
     pot_points: Vec<PotentialPoint>,
     spectra: Vec<SpectrumFrame>,
+    /// 本次运行的流式实验数据写入器；None = 不落盘（未配置路径/写入失败停写）
+    csv_writers: Option<RunCsvWriters>,
     /// 注入看门狗：上次泵 1 位置与无进度起始时刻
     last_inject_pos: u32,
     inject_stall_since: Option<Instant>,
@@ -330,6 +433,7 @@ impl BackendRuntime {
             last_e: None,
             pot_points: Vec::new(),
             spectra: Vec::new(),
+            csv_writers: None,
             last_inject_pos: 0,
             inject_stall_since: None,
             t1: None,
@@ -452,6 +556,31 @@ impl BackendRuntime {
         self.set_pump_position(pump, position);
         self.log("ok", format!("泵 {pump} 定步 {steps} 步"));
         Ok(())
+    }
+
+    /// 运行开始：在数据目录下建本次运行的 Exp-{日期}-{时间} 目录。
+    fn open_run_data(&mut self) {
+        if self.settings.data_dir.trim().is_empty() {
+            self.log("warn", "未配置数据保存路径，本次运行数据不落盘");
+            return;
+        }
+        let dir = Path::new(self.settings.data_dir.trim())
+            .join(Local::now().format("Exp-%Y-%m-%d-%H%M%S").to_string());
+        match fs::create_dir_all(&dir) {
+            Ok(()) => {
+                self.csv_writers = Some(RunCsvWriters::new(dir.clone()));
+                self.log("info", format!("运行数据目录：{}", dir.display()));
+            }
+            Err(e) => self.log("error", format!("创建数据目录失败：{e}")),
+        }
+    }
+
+    /// 运行结束（完成/中止/复位）：冲刷并关闭全部流。
+    fn close_run_data(&mut self) {
+        if let Some(mut writers) = self.csv_writers.take() {
+            writers.flush_all();
+            self.log("ok", format!("运行数据已写入 {}", writers.dir.display()));
+        }
     }
 
     fn check_manual_pump(&self, pump: u8) -> Result<(), String> {
@@ -586,6 +715,15 @@ impl BackendRuntime {
                         let excess = self.pot_points.len() - 6000;
                         self.pot_points.drain(0..excess);
                     }
+                    /* 流式 CSV：进样/滴定分文件，逐帧落盘 */
+                    if let Some(w) = self.csv_writers.as_mut() {
+                        let intake = self.workflow.state == TitrationState::Injecting;
+                        let deriv = self.workflow.detector.last_potential_derivative();
+                        if w.append_potential(intake, t, self.volume, voltage, deriv).is_err() {
+                            self.csv_writers = None;
+                            self.log("error", "运行数据写入失败，本次运行停写（盘满或目录不可用）");
+                        }
+                    }
                 }
                 /* 同理：进样期是残留零点、管路期是冲洗量——都不进检测器/运行体积 */
                 if self.workflow.state != TitrationState::Injecting && self.tubing_op.is_none() {
@@ -609,6 +747,18 @@ impl BackendRuntime {
                     if self.spectra.len() > 2000 {
                         let excess = self.spectra.len() - 2000;
                         self.spectra.drain(0..excess);
+                    }
+                    /* 流式 CSV：原始 10 通道（测量真值，回放工具输入格式） */
+                    if let Some(w) = self.csv_writers.as_mut() {
+                        let intake = self.workflow.state == TitrationState::Injecting;
+                        let t = self
+                            .run_started
+                            .map(|start| start.elapsed().as_secs_f64())
+                            .unwrap_or(0.0);
+                        if w.append_spectrum(intake, t, self.volume, &values).is_err() {
+                            self.csv_writers = None;
+                            self.log("error", "运行数据写入失败，本次运行停写（盘满或目录不可用）");
+                        }
                     }
                 }
                 self.workflow.on_spectrum(&raw);
@@ -641,6 +791,10 @@ impl BackendRuntime {
         self.set_workflow(outcome.state);
         for command in outcome.commands {
             self.send_pump_command(command);
+        }
+        /* 运行终结（完成/故障）：冲刷关闭本次实验数据流 */
+        if matches!(outcome.state, TitrationState::Done | TitrationState::Error) {
+            self.close_run_data();
         }
         if let Some(result) = outcome.detection {
             let snapshot = endpoint_snapshot("t1", &result, None);
@@ -699,6 +853,7 @@ impl BackendRuntime {
             return Err("滴定进行中".into());
         }
         self.clear_run();
+        self.open_run_data();
         self.run_started = Some(Instant::now());
         let outcome = self.workflow.start(self.sample_input);
         self.apply_outcome(outcome);
@@ -719,6 +874,8 @@ impl BackendRuntime {
         self.run_started = None;
         self.last_inject_pos = 0;
         self.inject_stall_since = None;
+        /* 复位/重开前收尾遗留写入器（正常路径已关闭，此处兜底） */
+        self.close_run_data();
         let outcome = self.workflow.abort();
         self.apply_outcome(outcome);
     }
@@ -739,6 +896,8 @@ impl BackendRuntime {
         self.apply_outcome(outcome);
         self.tubing_op = None;
         self.run_started = None;
+        /* 中止保留已写行：冲刷关闭，数据停在断点 */
+        self.close_run_data();
         if was_running {
             self.persist_history(true);
         }
@@ -1073,3 +1232,82 @@ fn save_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
 }
 
 pub type SharedBackend = Arc<Mutex<BackendRuntime>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_writers(name: &str) -> (RunCsvWriters, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("at_csv_test_{}_{}", std::process::id(), name));
+        let _ = fs::remove_dir_all(&dir);
+        (RunCsvWriters::new(dir.clone()), dir)
+    }
+
+    fn read_file(dir: &Path, name: &str) -> String {
+        fs::read_to_string(dir.join(name)).unwrap()
+    }
+
+    #[test]
+    fn streams_split_by_phase_and_modality() {
+        let (mut writers, dir) = test_writers("split");
+        let raw = [14u16, 50, 73, 103, 118, 124, 158, 126, 336, 27];
+        writers.append_potential(true, 0.5, 0.0, 0.2577, 0.0).unwrap();
+        writers.append_spectrum(true, 0.6, 0.0, &raw).unwrap();
+        writers.append_potential(false, 10.2, 1.5, 0.31, 0.02).unwrap();
+        writers.append_spectrum(false, 10.3, 1.5, &raw).unwrap();
+        writers.flush_all();
+
+        let titr_pot = read_file(&dir, "TitratingPotential.csv");
+        assert!(titr_pot.contains(POTENTIAL_HEADER));
+        assert!(titr_pot.contains("1.500000,10.200,0.310000,0.020000"));
+        assert!(!titr_pot.contains("进样"));
+
+        let intake_pot = read_file(&dir, "IntakingPotential.csv");
+        assert!(intake_pot.contains("0.000000,0.500,0.257700,0.000000"));
+
+        let intake_spec = read_file(&dir, "IntakingSpectrum.csv");
+        assert!(intake_spec.contains(SPECTRUM_HEADER));
+        assert!(intake_spec.contains("0.000000,0.600,14,50,73,103,118,124,158,126,336,27"));
+        assert!(read_file(&dir, "TitratingSpectrum.csv").contains("1.500000,10.300,14"));
+    }
+
+    #[test]
+    fn csv_layout_is_replay_compatible() {
+        // replay_csv 按列解析：电位前 3 列 volume/time/e；光谱 12 列 ch0..ch9
+        let (mut writers, dir) = test_writers("layout");
+        let raw = [0u16; 10];
+        writers.append_potential(false, 1.0, 1.0, 1.0, 0.0).unwrap();
+        writers.append_spectrum(false, 1.0, 1.0, &raw).unwrap();
+        writers.flush_all();
+
+        for name in ["TitratingPotential.csv", "TitratingSpectrum.csv"] {
+            for line in read_file(&dir, name).lines() {
+                if line.starts_with('#') || line.starts_with("volume_mL") || line.is_empty() {
+                    continue;
+                }
+                let cells: Vec<&str> = line.split(',').collect();
+                assert!(cells[0].parse::<f64>().is_ok(), "{name}: 列 0 非数值");
+                assert!(cells[1].parse::<f64>().is_ok(), "{name}: 列 1 非数值");
+                if name.contains("Spectrum") {
+                    assert_eq!(cells.len(), 12);
+                    assert!(cells[2..12].iter().all(|c| c.trim().parse::<f64>().is_ok()));
+                } else {
+                    assert!(cells[2].parse::<f64>().is_ok());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reopen_appends_without_duplicate_header() {
+        let (writers, dir) = test_writers("reopen");
+        drop(writers); // 模拟中途崩溃后用同目录重建
+        let mut writers = RunCsvWriters::new(dir.clone());
+        writers.append_potential(true, 9.9, 0.0, 0.1, 0.0).unwrap();
+        writers.flush_all();
+        let text = read_file(&dir, "IntakingPotential.csv");
+        assert_eq!(text.matches(POTENTIAL_HEADER).count(), 1);
+        assert!(text.contains("0.000000,9.900"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
