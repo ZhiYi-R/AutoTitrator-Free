@@ -1,0 +1,48 @@
+# Clangd project config — AutoTitrator 固件 (STM32F103C8T6 / Cortex-M3, 裸机 C++23)。
+#
+# 标志来源:
+# - 精确编译标志来自 compile_commands.json,由 SCons 原生 compilation_db 工具
+#   从真实编译命令生成。增删源文件后在仓库根目录执行 `scons cdb` 刷新。
+# - 本文件只补两样东西:直接打开头文件时的回退标志(与 SConstruct 保持一致),
+#   以及去掉 clang 不认识的 GCC 专有标志。
+# - 系统头文件(newlib / C++ 标准库 / GCC 内建头)由 clangd 向 arm-none-eabi-g++
+#   实时查询,不在此硬编码,工具链升级不用改路径。前提是编辑器启动 clangd 时
+#   加上 driver 白名单:
+#     --query-driver=**/arm-none-eabi-*
+#   VSCode (clangd 插件) settings.json 示例:
+#     "clangd.arguments": ["--query-driver=**/arm-none-eabi-*"]
+# - 改完本文件或 compile_commands.json 后重启 clangd。
+#
+# 不要在本文件写绝对路径;个人机器相关的覆盖请放家目录的 clangd 用户配置,
+# 不要改这里。本文件随仓库提交,保持可跨机器。
+
+CompileFlags:
+  # 不在 DB 中的文件(单独打开的头文件)的回退驱动;走 DB 的源文件不受影响。
+  Compiler: arm-none-eabi-g++
+  Add:
+    # 注意:这里故意不加 --target=arm-none-eabi。clangd 会把 Add 里的标志
+    # 一并传给 GCC 做系统头查询,而 GCC 不认识 clang 的 --target/-target,
+    # 查询直接失败返回码 1,导致 <concepts>/<cstdint> 全找不到。
+    # ARM triple 由编译器名 arm-none-eabi-g++ (--driver-mode=g++) 推导,
+    # 加上 -mcpu=cortex-m3 即可正确解析为 thumbv7m,无需显式 --target。
+    - -mcpu=cortex-m3
+    - -mthumb
+    - -std=c++23
+    - -Iinclude
+    - -fno-exceptions
+    - -fno-rtti
+    - -fno-use-cxa-atexit
+    - -ffunction-sections
+    - -fdata-sections
+    - -Wall
+    - -Wextra
+  Remove:
+    # GCC 专有,clang 不认识,去掉了免得刷 unknown_argument。
+    - -fcheck-new
+    # 链接期标志与索引/诊断无关;DB 里本就不该有,这里是保底。
+    - -T*
+    - -nostdlib
+    - -Wl,*
+
+Index:
+  StandardLibrary: Yes

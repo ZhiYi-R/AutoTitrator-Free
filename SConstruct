@@ -67,6 +67,13 @@ sources  = Glob('build/obj/src/*.cpp')
 sources += Glob('build/obj/src/**/*.cpp')
 sources += Glob('build/obj/Startup/*.cpp')
 
+# ---- Compilation database for clangd ----
+# Emits compile_commands.json from the exact compile commands SCons runs.
+# Regenerate with:  scons compile_commands.json   (or: scons cdb)
+env.Tool('compilation_db')
+cdb = env.CompilationDatabase('compile_commands.json')
+env.Alias('cdb', cdb)
+
 # ---- Build targets ----
 elf = env.Program('build/%s'     % PROJECT,        sources)
 hex = env.Command('build/%s.hex'  % PROJECT, elf,   '$OBJCOPY -O ihex $SOURCE $TARGET')

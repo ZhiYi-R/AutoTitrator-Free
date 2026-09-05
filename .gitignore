@@ -16,10 +16,16 @@ env/
 .vscode/
 .zed/
 .idea/
-.clangd
-.clangd/
 *.swp
 *.swo
+
+# clangd — .clangd 随仓库提交；生成的编译数据库与索引缓存不提交
+compile_commands.json
+.cache/
+
+# Qwen Code LSP 本机配置,不提交
+.lsp.json
+.qwen/
 
 # OS
 Thumbs.db
